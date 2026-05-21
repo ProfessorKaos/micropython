@@ -14,6 +14,33 @@ real-time operation on ESP32-S3 with an INMP441 MEMS microphone.
    library is compiled with ``NONTHREADSAFE_PSEUDOSTACK``; a single 60 KB
    global stack is shared across all instances.
 
+Building
+--------
+
+The encoder is built as the ``OPUS`` variant of the ``ESP32_GENERIC_S3`` board.
+No ``-D USER_C_MODULES`` flag is required::
+
+   idf.py -B build-OPUS \
+          -D MICROPY_BOARD=ESP32_GENERIC_S3 \
+          -D MICROPY_BOARD_VARIANT=OPUS \
+          build
+
+Then merge into a single flashable image::
+
+   cd build-OPUS
+   python -m esptool --chip esp32s3 merge_bin \
+     --output firmware.bin \
+     --flash_mode dio --flash_freq 80m --flash_size 8MB \
+     0x0 bootloader/bootloader.bin \
+     0x8000 partition_table/partition-table.bin \
+     0x10000 micropython.bin
+
+Flash::
+
+   python -m esptool --chip esp32s3 -p /dev/ttyUSB0 -b 460800 \
+     --before default_reset --after hard_reset \
+     write_flash 0x0 firmware.bin
+
 Module constants
 ----------------
 
