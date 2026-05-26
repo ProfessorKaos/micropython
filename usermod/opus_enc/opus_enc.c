@@ -33,7 +33,7 @@ typedef struct _opus_encoder_obj_t {
     OpusEncoder  *enc;
     int           sample_rate;
     int           channels;
-    int           frame_size;   // samples per 20 ms frame
+    int           frame_size;   // samples per frame
 } opus_encoder_obj_t;
 
 // ---------------------------------------------------------------------------
@@ -56,23 +56,25 @@ static void check_opus_error(int err) {
 // ---------------------------------------------------------------------------
 // OpusEncoder.__new__ / __init__
 //
-//   OpusEncoder(sample_rate, channels, application=VOIP, frame_ms=20)
+//   OpusEncoder(sample_rate, channels, application=VOIP, frame_ms=20, signal=OPUS_AUTO)
 //
 //   sample_rate  : 8000 | 12000 | 16000 | 24000 | 48000
 //   channels     : 1 (mono) or 2 (stereo)
 //   application  : opus_enc.VOIP | opus_enc.AUDIO | opus_enc.RESTRICTED_LOWDELAY
 //   frame_ms     : 10 | 20 | 40 | 60  (Opus frame duration in milliseconds)
+//   signal       : opus_enc.SIGNAL_VOICE | opus_enc.SIGNAL_MUSIC | opus_enc.AUTO
 // ---------------------------------------------------------------------------
 
 static mp_obj_t opus_encoder_make_new(const mp_obj_type_t *type,
                                        size_t n_args, size_t n_kw,
                                        const mp_obj_t *args) {
-    mp_arg_check_num(n_args, n_kw, 2, 4, false);
+    mp_arg_check_num(n_args, n_kw, 2, 5, false);
 
     int sample_rate  = mp_obj_get_int(args[0]);
     int channels     = mp_obj_get_int(args[1]);
     int application  = (n_args >= 3) ? mp_obj_get_int(args[2]) : OPUS_APPLICATION_VOIP;
     int frame_ms     = (n_args >= 4) ? mp_obj_get_int(args[3]) : 40;
+    int signal       = (n_args >= 5) ? mp_obj_get_int(args[4]) : OPUS_AUTO;
 
     // Validate sample rate
     if (sample_rate != 8000  && sample_rate != 12000 &&
@@ -93,6 +95,13 @@ static mp_obj_t opus_encoder_make_new(const mp_obj_type_t *type,
         mp_raise_ValueError(MP_ERROR_TEXT("invalid application type"));
     }
 
+    // Validate signal type
+    if (signal != OPUS_AUTO &&
+        signal != OPUS_SIGNAL_VOICE &&
+        signal != OPUS_SIGNAL_MUSIC) {
+        mp_raise_ValueError(MP_ERROR_TEXT("signal must be AUTO, SIGNAL_VOICE, or SIGNAL_MUSIC"));
+    }
+
     // Validate frame duration
     if (frame_ms != 10 && frame_ms != 20 && frame_ms != 40 && frame_ms != 60) {
         mp_raise_ValueError(MP_ERROR_TEXT("frame_ms must be 10/20/40/60"));
@@ -111,8 +120,9 @@ static mp_obj_t opus_encoder_make_new(const mp_obj_type_t *type,
     self->channels    = channels;
     self->frame_size  = sample_rate * frame_ms / 1000;
 
-    opus_encoder_ctl(enc, OPUS_SET_BITRATE(16000));
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(24000));
     opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(0));
+    opus_encoder_ctl(enc, OPUS_SET_SIGNAL(signal));
 
     return MP_OBJ_FROM_PTR(self);
 }
@@ -234,6 +244,26 @@ static mp_obj_t opus_encoder_set_complexity(mp_obj_t self_in, mp_obj_t level_in)
 static MP_DEFINE_CONST_FUN_OBJ_2(opus_encoder_set_complexity_obj, opus_encoder_set_complexity);
 
 // ---------------------------------------------------------------------------
+// OpusEncoder.set_signal(signal_type)
+//
+//   signal_type : opus_enc.SIGNAL_VOICE — tells the encoder to use the SILK
+//                 voice path; opus_enc.SIGNAL_MUSIC — prefers CELT music path;
+//                 opus_enc.AUTO — let the encoder auto-detect (default).
+// ---------------------------------------------------------------------------
+
+static mp_obj_t opus_encoder_set_signal(mp_obj_t self_in, mp_obj_t signal_in) {
+    opus_encoder_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    opus_int32 val = (opus_int32)mp_obj_get_int(signal_in);
+    if (val != OPUS_AUTO && val != OPUS_SIGNAL_VOICE && val != OPUS_SIGNAL_MUSIC) {
+        mp_raise_ValueError(MP_ERROR_TEXT("signal must be AUTO, SIGNAL_VOICE, or SIGNAL_MUSIC"));
+    }
+    int err = opus_encoder_ctl(self->enc, OPUS_SET_SIGNAL(val));
+    check_opus_error(err);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(opus_encoder_set_signal_obj, opus_encoder_set_signal);
+
+// ---------------------------------------------------------------------------
 // OpusEncoder.set_dtx(enable)
 //
 //   enable : True to enable Discontinuous Transmission (silence suppression).
@@ -301,6 +331,7 @@ static const mp_rom_map_elem_t opus_encoder_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_encode),         MP_ROM_PTR(&opus_encoder_encode_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_bitrate),    MP_ROM_PTR(&opus_encoder_set_bitrate_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_complexity), MP_ROM_PTR(&opus_encoder_set_complexity_obj) },
+    { MP_ROM_QSTR(MP_QSTR_set_signal),      MP_ROM_PTR(&opus_encoder_set_signal_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_dtx),        MP_ROM_PTR(&opus_encoder_set_dtx_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_inband_fec), MP_ROM_PTR(&opus_encoder_set_inband_fec_obj) },
     { MP_ROM_QSTR(MP_QSTR_frame_size),     MP_ROM_PTR(&opus_encoder_get_frame_size_obj) },
@@ -341,6 +372,11 @@ static const mp_rom_map_elem_t mp_module_opus_enc_globals_table[] = {
     // Convenience bitrate constants
     { MP_ROM_QSTR(MP_QSTR_BITRATE_AUTO),        MP_ROM_INT(OPUS_AUTO) },
     { MP_ROM_QSTR(MP_QSTR_BITRATE_MAX),         MP_ROM_INT(OPUS_BITRATE_MAX) },
+
+    // Signal type constants (for set_signal / constructor signal arg)
+    { MP_ROM_QSTR(MP_QSTR_AUTO),                MP_ROM_INT(OPUS_AUTO) },
+    { MP_ROM_QSTR(MP_QSTR_SIGNAL_VOICE),        MP_ROM_INT(OPUS_SIGNAL_VOICE) },
+    { MP_ROM_QSTR(MP_QSTR_SIGNAL_MUSIC),        MP_ROM_INT(OPUS_SIGNAL_MUSIC) },
 };
 static MP_DEFINE_CONST_DICT(mp_module_opus_enc_globals, mp_module_opus_enc_globals_table);
 
