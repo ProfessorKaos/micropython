@@ -66,11 +66,23 @@ typedef struct {
     pwm_mode_t mode[NRF_PWM_CHANNEL_COUNT];
     pwm_duty_t duty_mode[NRF_PWM_CHANNEL_COUNT];
     uint32_t duty[NRF_PWM_CHANNEL_COUNT];
-    uint16_t pwm_seq[4];
+
+    uint16_t pwm_seq[2][NRF_PWM_CHANNEL_COUNT];
+    nrf_pwm_sequence_t seq[2];
+
     pwm_run_t active;
     bool defer_start;
+    bool initialized;
+    bool running;
+
+    bool pending_seq_update;
+    uint8_t active_seq;
+
     int8_t freq_div;
     uint32_t freq;
+    uint16_t period;
+
+    const nrfx_pwm_t *p_pwm;
 } machine_pwm_config_t;
 
 typedef struct _machine_pwm_obj_t {
@@ -123,6 +135,14 @@ void pwm_init0(void) {
         hard_configs[i].freq_div = -1;
         hard_configs[i].freq = 0;
         memset(hard_configs[i].duty_mode, DUTY_NOT_SET, NRF_PWM_CHANNEL_COUNT);
+        hard_configs[i].initialized = false;
+        hard_configs[i].running = false;
+        hard_configs[i].pending_seq_update = false;
+        hard_configs[i].active_seq = 0;
+        hard_configs[i].period = 0;
+        hard_configs[i].p_pwm = &machine_hard_pwm_instances[i];
+        memset(hard_configs[i].pwm_seq, 0, sizeof(hard_configs[i].pwm_seq));
+        memset(hard_configs[i].seq, 0, sizeof(hard_configs[i].seq));
     }
 }
 
@@ -264,22 +284,22 @@ static void mp_machine_pwm_deinit(machine_pwm_obj_t *self) {
 static mp_obj_t mp_machine_pwm_freq_get(machine_pwm_obj_t *self) {
     return MP_OBJ_NEW_SMALL_INT(self->p_config->freq);
 }
+// Old frequency setting call
+// static void mp_machine_pwm_freq_set(machine_pwm_obj_t *self, mp_int_t freq) {
 
-static void mp_machine_pwm_freq_set(machine_pwm_obj_t *self, mp_int_t freq) {
-
-    uint8_t div = 0;
-    if (freq > (PWM_MAX_BASE_FREQ / 3) || freq <= (PWM_MIN_BASE_FREQ / PWM_MAX_PERIOD)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("frequency out of range"));
-    }
-    for (div = 0; div < 8; div++) {
-        if (PWM_MAX_BASE_FREQ / (1 << div) / freq < PWM_MAX_PERIOD) {
-            break;
-        }
-    }
-    self->p_config->freq_div = div;
-    self->p_config->freq = freq;
-    machine_hard_pwm_start(self);
-}
+//     uint8_t div = 0;
+//     if (freq > (PWM_MAX_BASE_FREQ / 3) || freq <= (PWM_MIN_BASE_FREQ / PWM_MAX_PERIOD)) {
+//         mp_raise_ValueError(MP_ERROR_TEXT("frequency out of range"));
+//     }
+//     for (div = 0; div < 8; div++) {
+//         if (PWM_MAX_BASE_FREQ / (1 << div) / freq < PWM_MAX_PERIOD) {
+//             break;
+//         }
+//     }
+//     self->p_config->freq_div = div;
+//     self->p_config->freq = freq;
+//     machine_hard_pwm_start(self);
+// }
 
 static mp_obj_t mp_machine_pwm_duty_get(machine_pwm_obj_t *self) {
     if (self->p_config->duty_mode[self->channel] == DUTY_PERCENT) {
@@ -290,11 +310,35 @@ static mp_obj_t mp_machine_pwm_duty_get(machine_pwm_obj_t *self) {
         return MP_OBJ_NEW_SMALL_INT(-1);
     }
 }
+// Old Duty setting calls
+// static void mp_machine_pwm_duty_set(machine_pwm_obj_t *self, mp_int_t duty) {
+//     self->p_config->duty[self->channel] = duty;
+//     self->p_config->duty_mode[self->channel] = DUTY_PERCENT;
+//     machine_hard_pwm_start(self);
+// }
 
-static void mp_machine_pwm_duty_set(machine_pwm_obj_t *self, mp_int_t duty) {
-    self->p_config->duty[self->channel] = duty;
-    self->p_config->duty_mode[self->channel] = DUTY_PERCENT;
-    machine_hard_pwm_start(self);
+// static mp_obj_t mp_machine_pwm_duty_get_u16(machine_pwm_obj_t *self) {
+//     if (self->p_config->duty_mode[self->channel] == DUTY_U16) {
+//         return MP_OBJ_NEW_SMALL_INT(self->p_config->duty[self->channel]);
+//     } else if (self->p_config->duty_mode[self->channel] == DUTY_PERCENT) {
+//         return MP_OBJ_NEW_SMALL_INT(self->p_config->duty[self->channel] * 65535 / 100);
+//     } else {
+//         return MP_OBJ_NEW_SMALL_INT(-1);
+//     }
+// }
+
+// static void mp_machine_pwm_duty_set_u16(machine_pwm_obj_t *self, mp_int_t duty) {
+//     self->p_config->duty[self->channel] = duty;
+//     self->p_config->duty_mode[self->channel] = DUTY_U16;
+//     machine_hard_pwm_start(self);
+// }
+
+static mp_obj_t mp_machine_pwm_duty_get_ns(machine_pwm_obj_t *self) {
+    if (self->p_config->duty_mode[self->channel] == DUTY_NS) {
+        return MP_OBJ_NEW_SMALL_INT(self->p_config->duty[self->channel]);
+    } else {
+        return MP_OBJ_NEW_SMALL_INT(-1);
+    }
 }
 
 static mp_obj_t mp_machine_pwm_duty_get_u16(machine_pwm_obj_t *self) {
@@ -307,86 +351,209 @@ static mp_obj_t mp_machine_pwm_duty_get_u16(machine_pwm_obj_t *self) {
     }
 }
 
+/* Added Core Helper  for quicker duty and freq updates ***********************************************/
+
+
+static bool machine_pwm_calc_params(uint32_t freq, int8_t *div_out, uint16_t *period_out) {
+    uint8_t div;
+    if (freq > (PWM_MAX_BASE_FREQ / 3) || freq <= (PWM_MIN_BASE_FREQ / PWM_MAX_PERIOD)) {
+        return false;
+    }
+    for (div = 0; div < 8; div++) {
+        if (PWM_MAX_BASE_FREQ / (1 << div) / freq < PWM_MAX_PERIOD) {
+            break;
+        }
+    }
+    *div_out = div;
+    *period_out = (PWM_MAX_BASE_FREQ / (1 << div)) / freq;
+    return true;
+}
+
+static void machine_pwm_fill_seq(machine_pwm_config_t *cfg, int buf_idx) {
+    uint32_t tick_freq = PWM_MAX_BASE_FREQ / (1 << cfg->freq_div);
+    uint32_t period = cfg->period;
+
+    for (int i = 0; i < NRF_PWM_CHANNEL_COUNT; i++) {
+        uint16_t pulse_width = 0;
+
+        if (cfg->duty_mode[i] == DUTY_PERCENT) {
+            pulse_width = (period * cfg->duty[i]) / 100;
+        } else if (cfg->duty_mode[i] == DUTY_U16) {
+            pulse_width = (period * cfg->duty[i]) / 65535;
+        } else if (cfg->duty_mode[i] == DUTY_NS) {
+            pulse_width = ((uint64_t)cfg->duty[i] * tick_freq) / 1000000000ULL;
+        }
+
+        if (cfg->mode[i] == MODE_HIGH_LOW) {
+            cfg->pwm_seq[buf_idx][i] = 0x8000 | pulse_width;
+        } else {
+            cfg->pwm_seq[buf_idx][i] = pulse_width;
+        }
+    }
+
+    cfg->seq[buf_idx].values.p_raw = cfg->pwm_seq[buf_idx];
+    cfg->seq[buf_idx].length = NRF_PWM_CHANNEL_COUNT;
+    cfg->seq[buf_idx].repeats = 0;
+    cfg->seq[buf_idx].end_delay = 0;
+}
+
+/* handler for quicker pwm and duty changes ***********************************************/
+
+static void machine_pwm_handler(nrfx_pwm_evt_type_t event_type, void *p_context) {
+    machine_pwm_config_t *cfg = (machine_pwm_config_t *)p_context;
+
+    if (event_type == NRFX_PWM_EVT_END_SEQ0) {
+        cfg->active_seq = 1;
+        if (cfg->pending_seq_update) {
+            nrfx_pwm_sequence_update(cfg->p_pwm, 0, &cfg->seq[0]);
+            cfg->pending_seq_update = false;
+        }
+    } else if (event_type == NRFX_PWM_EVT_END_SEQ1) {
+        cfg->active_seq = 0;
+        if (cfg->pending_seq_update) {
+            nrfx_pwm_sequence_update(cfg->p_pwm, 1, &cfg->seq[1]);
+            cfg->pending_seq_update = false;
+        }
+    } else if (event_type == NRFX_PWM_EVT_STOPPED) {
+        cfg->running = false;
+        cfg->active = STOPPED;
+    }
+}
+
+
+
+/* code for hard implementation ***********************************************/
+
+
+/* One init and then loop to allow faster PWM updating ***********************************************/
+
+static void machine_hard_pwm_init_once(const machine_pwm_obj_t *self) {
+    machine_pwm_config_t *cfg = self->p_config;
+
+    nrfx_pwm_config_t config;
+    memset(&config, 0, sizeof(config));
+
+    config.output_pins[0] = cfg->duty_mode[0] != DUTY_NOT_SET ? cfg->pwm_pin[0] : NRF_PWM_PIN_NOT_CONNECTED;
+    config.output_pins[1] = cfg->duty_mode[1] != DUTY_NOT_SET ? cfg->pwm_pin[1] : NRF_PWM_PIN_NOT_CONNECTED;
+    config.output_pins[2] = cfg->duty_mode[2] != DUTY_NOT_SET ? cfg->pwm_pin[2] : NRF_PWM_PIN_NOT_CONNECTED;
+    config.output_pins[3] = cfg->duty_mode[3] != DUTY_NOT_SET ? cfg->pwm_pin[3] : NRF_PWM_PIN_NOT_CONNECTED;
+
+    config.irq_priority = 6;
+    config.base_clock = cfg->freq_div;
+    config.count_mode = NRF_PWM_MODE_UP;
+    config.top_value = cfg->period;
+    config.load_mode = NRF_PWM_LOAD_INDIVIDUAL;
+    config.step_mode = NRF_PWM_STEP_AUTO;
+
+    machine_pwm_fill_seq(cfg, 0);
+    machine_pwm_fill_seq(cfg, 1);
+
+    nrfx_pwm_init(self->p_pwm, &config, machine_pwm_handler, cfg);
+    nrfx_pwm_complex_playback(self->p_pwm, &cfg->seq[0], &cfg->seq[1], 1, NRFX_PWM_FLAG_LOOP);
+
+    cfg->initialized = true;
+    cfg->running = true;
+    cfg->active = RUNNING;
+    cfg->active_seq = 0;
+}
+
+
+// Fast duty path
+static void machine_hard_pwm_update_duty_fast(const machine_pwm_obj_t *self) {
+    machine_pwm_config_t *cfg = self->p_config;
+
+    if (cfg->defer_start || cfg->freq_div < 0 || cfg->duty_mode[self->channel] == DUTY_NOT_SET) {
+        return;
+    }
+
+    if (!cfg->initialized) {
+        machine_hard_pwm_init_once(self);
+        return;
+    }
+
+    machine_pwm_fill_seq(cfg, 0);
+    machine_pwm_fill_seq(cfg, 1);
+    cfg->pending_seq_update = true;
+}
+
+
+static void machine_hard_pwm_start(const machine_pwm_obj_t *self) {
+    // Redirect to the fast update path; full init/uninit no longer happens here.
+    machine_hard_pwm_update_duty_fast(self);
+}
+
+// Faster freq path
+static void machine_hard_pwm_reconfigure_freq_fast(const machine_pwm_obj_t *self) {
+    machine_pwm_config_t *cfg = self->p_config;
+
+    if (!cfg->initialized) {
+        machine_hard_pwm_init_once(self);
+        return;
+    }
+
+    nrfx_pwm_stop(self->p_pwm, false);
+    while (!nrfx_pwm_stopped_check(self->p_pwm)) {
+    }
+
+    nrfx_pwm_config_t config;
+    memset(&config, 0, sizeof(config));
+    config.output_pins[0] = cfg->duty_mode[0] != DUTY_NOT_SET ? cfg->pwm_pin[0] : NRF_PWM_PIN_NOT_CONNECTED;
+    config.output_pins[1] = cfg->duty_mode[1] != DUTY_NOT_SET ? cfg->pwm_pin[1] : NRF_PWM_PIN_NOT_CONNECTED;
+    config.output_pins[2] = cfg->duty_mode[2] != DUTY_NOT_SET ? cfg->pwm_pin[2] : NRF_PWM_PIN_NOT_CONNECTED;
+    config.output_pins[3] = cfg->duty_mode[3] != DUTY_NOT_SET ? cfg->pwm_pin[3] : NRF_PWM_PIN_NOT_CONNECTED;
+    config.irq_priority = 6;
+    config.base_clock = cfg->freq_div;
+    config.count_mode = NRF_PWM_MODE_UP;
+    config.top_value = cfg->period;
+    config.load_mode = NRF_PWM_LOAD_INDIVIDUAL;
+    config.step_mode = NRF_PWM_STEP_AUTO;
+
+    nrfx_pwm_reconfigure(self->p_pwm, &config);
+
+    machine_pwm_fill_seq(cfg, 0);
+    machine_pwm_fill_seq(cfg, 1);
+    nrfx_pwm_complex_playback(self->p_pwm, &cfg->seq[0], &cfg->seq[1], 1, NRFX_PWM_FLAG_LOOP);
+
+    cfg->running = true;
+    cfg->active = RUNNING;
+}
+
+// Change the setters
+
+static void mp_machine_pwm_freq_set(machine_pwm_obj_t *self, mp_int_t freq) {
+    int8_t div;
+    uint16_t period;
+    if (!machine_pwm_calc_params(freq, &div, &period)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("frequency out of range"));
+    }
+
+    if (self->p_config->freq == freq &&
+        self->p_config->freq_div == div &&
+        self->p_config->period == period) {
+        return;
+    }
+
+    self->p_config->freq = freq;
+    self->p_config->freq_div = div;
+    self->p_config->period = period;
+    machine_hard_pwm_reconfigure_freq_fast(self);
+}
+
+static void mp_machine_pwm_duty_set(machine_pwm_obj_t *self, mp_int_t duty) {
+    self->p_config->duty[self->channel] = duty;
+    self->p_config->duty_mode[self->channel] = DUTY_PERCENT;
+    machine_hard_pwm_update_duty_fast(self);
+}
+
 static void mp_machine_pwm_duty_set_u16(machine_pwm_obj_t *self, mp_int_t duty) {
     self->p_config->duty[self->channel] = duty;
     self->p_config->duty_mode[self->channel] = DUTY_U16;
-    machine_hard_pwm_start(self);
-}
-
-static mp_obj_t mp_machine_pwm_duty_get_ns(machine_pwm_obj_t *self) {
-    if (self->p_config->duty_mode[self->channel] == DUTY_NS) {
-        return MP_OBJ_NEW_SMALL_INT(self->p_config->duty[self->channel]);
-    } else {
-        return MP_OBJ_NEW_SMALL_INT(-1);
-    }
+    machine_hard_pwm_update_duty_fast(self);
 }
 
 static void mp_machine_pwm_duty_set_ns(machine_pwm_obj_t *self, mp_int_t duty) {
     self->p_config->duty[self->channel] = duty;
     self->p_config->duty_mode[self->channel] = DUTY_NS;
-    machine_hard_pwm_start(self);
+    machine_hard_pwm_update_duty_fast(self);
 }
 
-/* code for hard implementation ***********************************************/
-
-static void machine_hard_pwm_start(const machine_pwm_obj_t *self) {
-
-    nrfx_pwm_config_t config;
-    memset(&config, 0, sizeof(config));
-
-    // check if ready to go
-    if (self->p_config->defer_start == true || self->p_config->freq_div < 0 || self->p_config->duty_mode[self->channel] == DUTY_NOT_SET) {
-        return; // Not ready yet.
-    }
-
-    self->p_config->active = RUNNING;
-
-    config.output_pins[0] = self->p_config->duty_mode[0] != DUTY_NOT_SET ? self->p_config->pwm_pin[0] : NRF_PWM_PIN_NOT_CONNECTED;
-    config.output_pins[1] = self->p_config->duty_mode[1] != DUTY_NOT_SET ? self->p_config->pwm_pin[1] : NRF_PWM_PIN_NOT_CONNECTED;
-    config.output_pins[2] = self->p_config->duty_mode[2] != DUTY_NOT_SET ? self->p_config->pwm_pin[2] : NRF_PWM_PIN_NOT_CONNECTED;
-    config.output_pins[3] = self->p_config->duty_mode[3] != DUTY_NOT_SET ? self->p_config->pwm_pin[3] : NRF_PWM_PIN_NOT_CONNECTED;
-
-    uint32_t tick_freq = PWM_MAX_BASE_FREQ / (1 << self->p_config->freq_div);
-    uint32_t period = tick_freq / self->p_config->freq;
-
-    config.irq_priority = 6;
-    config.base_clock = self->p_config->freq_div;
-    config.count_mode = NRF_PWM_MODE_UP;
-    config.top_value = period;
-    config.load_mode = NRF_PWM_LOAD_INDIVIDUAL;
-    config.step_mode = NRF_PWM_STEP_AUTO;
-
-    nrfx_pwm_stop(self->p_pwm, true);
-    nrfx_pwm_uninit(self->p_pwm);
-
-    nrfx_pwm_init(self->p_pwm, &config, NULL, NULL);
-
-    for (int i = 0; i < NRF_PWM_CHANNEL_COUNT; i++) {
-        uint16_t pulse_width = 0;
-        if (self->p_config->duty_mode[i] == DUTY_PERCENT) {
-            pulse_width = ((period * self->p_config->duty[i]) / 100);
-        } else if (self->p_config->duty_mode[i] == DUTY_U16) {
-            pulse_width = ((period * self->p_config->duty[i]) / 65535);
-        } else if (self->p_config->duty_mode[i] == DUTY_NS) {
-            pulse_width = (uint64_t)self->p_config->duty[i] * tick_freq / 1000000000ULL;
-        }
-
-        if (self->p_config->mode[i] == MODE_HIGH_LOW) {
-            self->p_config->pwm_seq[i] = 0x8000 | pulse_width;
-        } else {
-            self->p_config->pwm_seq[i] = pulse_width;
-        }
-    }
-
-    const nrf_pwm_sequence_t pwm_sequence = {
-        .values.p_raw = (const uint16_t *)&self->p_config->pwm_seq,
-        .length = 4,
-        .repeats = 0,
-        .end_delay = 0
-    };
-
-    nrfx_pwm_simple_playback(self->p_pwm,
-        &pwm_sequence,
-        0, // Loop disabled.
-        0);
-}
