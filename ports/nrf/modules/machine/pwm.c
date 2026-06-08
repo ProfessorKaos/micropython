@@ -285,7 +285,12 @@ static void mp_machine_pwm_deinit(machine_pwm_obj_t *self) {
 }
 
 static mp_obj_t mp_machine_pwm_freq_get(machine_pwm_obj_t *self) {
-    return mp_obj_new_float(self->p_config->freq);
+    machine_pwm_config_t *cfg = self->p_config;
+    if (cfg->freq_div < 0 || cfg->period == 0) {
+        return mp_obj_new_float(0.0);
+    }
+    double actual = (double)PWM_MAX_BASE_FREQ / (double)(1 << cfg->freq_div) / (double)cfg->period;
+    return mp_obj_new_float(actual);
 }
 // Old frequency setting call
 // static void mp_machine_pwm_freq_set(machine_pwm_obj_t *self, mp_int_t freq) {
