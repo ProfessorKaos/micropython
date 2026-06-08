@@ -36,7 +36,10 @@ static mp_obj_t mp_machine_pwm_make_new(const mp_obj_type_t *type, size_t n_args
 static void mp_machine_pwm_init_helper(machine_pwm_obj_t *self, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args);
 static void mp_machine_pwm_deinit(machine_pwm_obj_t *self);
 static mp_obj_t mp_machine_pwm_freq_get(machine_pwm_obj_t *self);
-static void mp_machine_pwm_freq_set(machine_pwm_obj_t *self, mp_int_t freq);
+// Port may provide an object-based setter to accept float or int
+static void mp_machine_pwm_freq_set_from_obj(machine_pwm_obj_t *self, mp_obj_t freq_obj);
+// Optional object-based setter implemented by ports to accept float/int objects.
+static void mp_machine_pwm_freq_set_from_obj(machine_pwm_obj_t *self, mp_obj_t freq_obj);
 #if MICROPY_PY_MACHINE_PWM_DUTY
 static mp_obj_t mp_machine_pwm_duty_get(machine_pwm_obj_t *self);
 static void mp_machine_pwm_duty_set(machine_pwm_obj_t *self, mp_int_t duty);
@@ -70,9 +73,8 @@ static mp_obj_t machine_pwm_freq(size_t n_args, const mp_obj_t *args) {
         // Get frequency.
         return mp_machine_pwm_freq_get(self);
     } else {
-        // Set the frequency.
-        mp_int_t freq = mp_obj_get_int(args[1]);
-        mp_machine_pwm_freq_set(self, freq);
+        // Set the frequency (accept int or float).
+        mp_machine_pwm_freq_set_from_obj(self, args[1]);
         return mp_const_none;
     }
 }

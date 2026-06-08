@@ -33,6 +33,7 @@
 #include "pin.h"
 #include "genhdr/pins.h"
 #include "pwm.h"
+#include <math.h>
 
 #if defined(NRF52_SERIES)
 // Use PWM hardware.
@@ -79,7 +80,7 @@ typedef struct {
     uint8_t active_seq;
 
     int8_t freq_div;
-    uint32_t freq;
+    double freq;
     uint16_t period;
 
     const nrfx_pwm_t *p_pwm;
@@ -133,7 +134,7 @@ void pwm_init0(void) {
     for (int i = 0; i < MP_ARRAY_SIZE(hard_configs); i++) {
         hard_configs[i].active = FREE;
         hard_configs[i].freq_div = -1;
-        hard_configs[i].freq = 0;
+        hard_configs[i].freq = 0.0;
         memset(hard_configs[i].duty_mode, DUTY_NOT_SET, NRF_PWM_CHANNEL_COUNT);
         hard_configs[i].initialized = false;
         hard_configs[i].running = false;
@@ -160,8 +161,8 @@ static int hard_pwm_find() {
 static void mp_machine_pwm_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     machine_pwm_obj_t *self = self_in;
     static char *duty_suffix[] = { "", "", "_u16", "_ns" };
-    mp_printf(print, "<PWM: Pin=%u freq=%dHz duty%s=%d invert=%d id=%u channel=%u>",
-        self->p_config->pwm_pin[self->channel], self->p_config->freq,
+    mp_printf(print, "<PWM: Pin=%u freq=%.2fHz duty%s=%d invert=%d id=%u channel=%u>",
+        self->p_config->pwm_pin[self->channel], (double)self->p_config->freq,
         duty_suffix[self->p_config->duty_mode[self->channel]], self->p_config->duty[self->channel],
         self->p_config->mode[self->channel], self->id, self->channel);
 }
@@ -170,10 +171,12 @@ static void mp_machine_pwm_print(const mp_print_t *print, mp_obj_t self_in, mp_p
 /* MicroPython bindings for machine API                                       */
 
 static void machine_hard_pwm_start(const machine_pwm_obj_t *self);
+// forward declare mp_obj-based freq setter used earlier in this file
+static void mp_machine_pwm_freq_set_from_obj(machine_pwm_obj_t *self, mp_obj_t freq_obj);
 
 static const mp_arg_t allowed_args[] = {
     { MP_QSTR_pin,      MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
-    { MP_QSTR_freq,     MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
+    { MP_QSTR_freq,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
     { MP_QSTR_duty,     MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
     { MP_QSTR_duty_u16, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
     { MP_QSTR_duty_ns,  MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
@@ -189,8 +192,8 @@ static void mp_machine_pwm_init_helper(machine_pwm_obj_t *self, size_t n_args, c
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
     self->p_config->defer_start = true;
-    if (args[ARG_freq].u_int != -1) {
-        mp_machine_pwm_freq_set(self, args[ARG_freq].u_int);
+    if (args[ARG_freq].u_obj != MP_OBJ_NULL) {
+        mp_machine_pwm_freq_set_from_obj(self, args[ARG_freq].u_obj);
     }
     if (args[ARG_duty].u_int != -1) {
         mp_machine_pwm_duty_set(self, args[ARG_duty].u_int);
@@ -282,7 +285,7 @@ static void mp_machine_pwm_deinit(machine_pwm_obj_t *self) {
 }
 
 static mp_obj_t mp_machine_pwm_freq_get(machine_pwm_obj_t *self) {
-    return MP_OBJ_NEW_SMALL_INT(self->p_config->freq);
+    return mp_obj_new_float(self->p_config->freq);
 }
 // Old frequency setting call
 // static void mp_machine_pwm_freq_set(machine_pwm_obj_t *self, mp_int_t freq) {
@@ -354,18 +357,21 @@ static mp_obj_t mp_machine_pwm_duty_get_u16(machine_pwm_obj_t *self) {
 /* Added Core Helper  for quicker duty and freq updates ***********************************************/
 
 
-static bool machine_pwm_calc_params(uint32_t freq, int8_t *div_out, uint16_t *period_out) {
+static bool machine_pwm_calc_params(double freq, int8_t *div_out, uint16_t *period_out) {
     uint8_t div;
-    if (freq > (PWM_MAX_BASE_FREQ / 3) || freq <= (PWM_MIN_BASE_FREQ / PWM_MAX_PERIOD)) {
+    double min_freq = (double)PWM_MIN_BASE_FREQ / (double)PWM_MAX_PERIOD;
+    if (freq > ((double)PWM_MAX_BASE_FREQ / (double)3.0) || freq <= min_freq) {
         return false;
     }
     for (div = 0; div < 8; div++) {
-        if (PWM_MAX_BASE_FREQ / (1 << div) / freq < PWM_MAX_PERIOD) {
+        double top = (double)PWM_MAX_BASE_FREQ / (double)(1 << div) / freq;
+        if (top < (double)PWM_MAX_PERIOD) {
             break;
         }
     }
     *div_out = div;
-    *period_out = (PWM_MAX_BASE_FREQ / (1 << div)) / freq;
+    double period = (double)PWM_MAX_BASE_FREQ / (double)(1 << div) / freq;
+    *period_out = (uint16_t)(period + (double)0.5);
     return true;
 }
 
@@ -520,14 +526,14 @@ static void machine_hard_pwm_reconfigure_freq_fast(const machine_pwm_obj_t *self
 
 // Change the setters
 
-static void mp_machine_pwm_freq_set(machine_pwm_obj_t *self, mp_int_t freq) {
+static void mp_machine_pwm_freq_set_internal(machine_pwm_obj_t *self, double freq) {
     int8_t div;
     uint16_t period;
-    if (!machine_pwm_calc_params(freq, &div, &period)) {
+    if (!machine_pwm_calc_params((double)freq, &div, &period)) {
         mp_raise_ValueError(MP_ERROR_TEXT("frequency out of range"));
     }
 
-    if (self->p_config->freq == freq &&
+    if (fabs(self->p_config->freq - freq) < (double)0.005 &&
         self->p_config->freq_div == div &&
         self->p_config->period == period) {
         return;
@@ -537,6 +543,12 @@ static void mp_machine_pwm_freq_set(machine_pwm_obj_t *self, mp_int_t freq) {
     self->p_config->freq_div = div;
     self->p_config->period = period;
     machine_hard_pwm_reconfigure_freq_fast(self);
+}
+
+// New helper to accept mp_obj_t (float or int) from this module
+static void mp_machine_pwm_freq_set_from_obj(machine_pwm_obj_t *self, mp_obj_t freq_obj) {
+    mp_float_t f = mp_obj_get_float(freq_obj);
+    mp_machine_pwm_freq_set_internal(self, (double)f);
 }
 
 static void mp_machine_pwm_duty_set(machine_pwm_obj_t *self, mp_int_t duty) {
