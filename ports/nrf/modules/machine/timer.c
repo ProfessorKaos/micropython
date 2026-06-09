@@ -41,15 +41,8 @@ typedef struct _machine_timer_obj_t {
     nrfx_timer_t p_instance;
 } machine_timer_obj_t;
 
-static mp_obj_t machine_timer_callbacks[] = {
-    NULL,
-    NULL,
-    NULL,
-    #if defined(NRF52_SERIES)
-    NULL,
-    NULL,
-    #endif
-};
+// Callback storage: one callback per CC channel per timer.
+// Sized at runtime based on the number of static timer objects below.
 
 static const machine_timer_obj_t machine_timer_obj[] = {
     {{&machine_timer_type}, NRFX_TIMER_INSTANCE(0)},
@@ -64,6 +57,16 @@ static const machine_timer_obj_t machine_timer_obj[] = {
     {{&machine_timer_type}, NRFX_TIMER_INSTANCE(4)},
     #endif
 };
+
+// 4 compare channels per timer (CC0..CC3). Initialize to NULL.
+// 4 compare channels per timer (CC0..CC3).
+typedef struct _timer_callback_t {
+    mp_obj_t func;
+    mp_obj_t arg;
+} timer_callback_t;
+
+// Initialize to {NULL, NULL}.
+static timer_callback_t machine_timer_callbacks[MP_ARRAY_SIZE(machine_timer_obj)][4] = {{{NULL, NULL}}};
 
 void timer_init0(void) {
     for (int i = 0; i < MP_ARRAY_SIZE(machine_timer_obj); i++) {
@@ -87,9 +90,23 @@ static void timer_print(const mp_print_t *print, mp_obj_t o, mp_print_kind_t kin
 
 static void timer_event_handler(nrf_timer_event_t event_type, void *p_context) {
     machine_timer_obj_t *self = p_context;
-    mp_obj_t callback = machine_timer_callbacks[self->p_instance.instance_id];
-    if (callback != NULL) {
-        mp_call_function_1(callback, self);
+    uint8_t timer_id = self->p_instance.instance_id;
+
+    // Map compare events to CC channel index (COMPARE0..COMPARE3)
+    if (event_type >= NRF_TIMER_EVENT_COMPARE0 && event_type <= NRF_TIMER_EVENT_COMPARE3) {
+        /* NRF_TIMER_EVENT_COMPAREn are defined as register offsets (bytes),
+           so compute index by dividing by 4 (size of 32-bit register). */
+        uint8_t channel = (uint8_t)((event_type - NRF_TIMER_EVENT_COMPARE0) / sizeof(uint32_t));
+        if (channel < 4) {
+            timer_callback_t *cb = &machine_timer_callbacks[timer_id][channel];
+            if (cb->func != NULL) {
+                if (cb->arg != mp_const_none) {
+                    mp_call_function_2(cb->func, self, cb->arg);
+                } else {
+                    mp_call_function_1(cb->func, self);
+                }
+            }
+        }
     }
 }
 
@@ -97,12 +114,13 @@ static void timer_event_handler(nrf_timer_event_t event_type, void *p_context) {
 /* MicroPython bindings for machine API                                       */
 
 static mp_obj_t machine_timer_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
-    enum { ARG_id, ARG_period, ARG_mode, ARG_callback };
+    enum { ARG_id, ARG_period, ARG_mode, ARG_callback, ARG_callback_arg };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_id,       MP_ARG_OBJ, {.u_obj = MP_OBJ_NEW_SMALL_INT(-1)} },
         { MP_QSTR_period,   MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 1000000} }, // 1 second
         { MP_QSTR_mode,     MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = TIMER_MODE_PERIODIC} },
         { MP_QSTR_callback, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        { MP_QSTR_callback_arg, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
     };
 
     // parse args
@@ -127,9 +145,11 @@ static mp_obj_t machine_timer_make_new(const mp_obj_type_t *type, size_t n_args,
     machine_timer_obj_t *self = (machine_timer_obj_t *)&machine_timer_obj[timer_id];
 
     if (mp_obj_is_fun(args[ARG_callback].u_obj)) {
-        machine_timer_callbacks[timer_id] = args[ARG_callback].u_obj;
+        machine_timer_callbacks[timer_id][0].func = args[ARG_callback].u_obj;
+        machine_timer_callbacks[timer_id][0].arg = args[ARG_callback_arg].u_obj;
     } else if (args[ARG_callback].u_obj == mp_const_none) {
-        machine_timer_callbacks[timer_id] = NULL;
+        machine_timer_callbacks[timer_id][0].func = NULL;
+        machine_timer_callbacks[timer_id][0].arg = mp_const_none;
     } else {
         mp_raise_ValueError(MP_ERROR_TEXT("callback must be a function"));
     }
@@ -220,12 +240,56 @@ static mp_obj_t machine_timer_deinit(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(machine_timer_deinit_obj, machine_timer_deinit);
 
+/// \method compare(channel, value, callback)
+/// Configure a compare channel with callback
+///
+static mp_obj_t machine_timer_compare(size_t n_args, const mp_obj_t *args) {
+    enum { ARG_self, ARG_channel, ARG_value, ARG_callback };
+    machine_timer_obj_t *self = MP_OBJ_TO_PTR(args[ARG_self]);
+    uint8_t channel = mp_obj_get_int(args[ARG_channel]);
+    uint32_t value = mp_obj_get_int(args[ARG_value]);
+    mp_obj_t callback = args[ARG_callback];
+    mp_obj_t callback_arg = mp_const_none;
+
+    if (n_args >= 5) {
+        callback_arg = args[4];
+    }
+
+    // Validate channel (0-3)
+    if (channel > 3) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Channel must be 0-3"));
+    }
+
+    // Store callback
+    if (mp_obj_is_fun(callback)) {
+        machine_timer_callbacks[self->p_instance.instance_id][channel].func = callback;
+        machine_timer_callbacks[self->p_instance.instance_id][channel].arg = callback_arg;
+    } else if (callback == mp_const_none) {
+        machine_timer_callbacks[self->p_instance.instance_id][channel].func = NULL;
+        machine_timer_callbacks[self->p_instance.instance_id][channel].arg = mp_const_none;
+    } else {
+        mp_raise_ValueError(MP_ERROR_TEXT("Callback must be a function"));
+    }
+
+    // Configure the compare channel and enable interrupts
+    nrfx_timer_extended_compare(
+        &self->p_instance,
+        (nrf_timer_cc_channel_t)channel,
+        value,
+        0, // no shortcuts by default for non-primary channels
+        true);
+
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(machine_timer_compare_obj, 4, 5, machine_timer_compare);
+
 static const mp_rom_map_elem_t machine_timer_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_time),     MP_ROM_PTR(&machine_timer_period_obj) }, // alias
     { MP_ROM_QSTR(MP_QSTR_period),   MP_ROM_PTR(&machine_timer_period_obj) },
     { MP_ROM_QSTR(MP_QSTR_start),    MP_ROM_PTR(&machine_timer_start_obj) },
     { MP_ROM_QSTR(MP_QSTR_stop),     MP_ROM_PTR(&machine_timer_stop_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit),   MP_ROM_PTR(&machine_timer_deinit_obj) },
+    { MP_ROM_QSTR(MP_QSTR_compare),  MP_ROM_PTR(&machine_timer_compare_obj) },  // NEW
 
     // constants
     { MP_ROM_QSTR(MP_QSTR_ONESHOT),  MP_ROM_INT(TIMER_MODE_ONESHOT) },
