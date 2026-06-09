@@ -4,8 +4,8 @@ ifdef BOARD_DIR
 # the path as the board name.
 BOARD ?= $(notdir $(BOARD_DIR:/=))
 else
-# If not given on the command line, then default to PCA10040.
-BOARD ?= PCA10040
+# If not given on the command line, then default to ZENRF.
+BOARD ?= ZENRF
 BOARD_DIR ?= boards/$(BOARD)
 endif
 

@@ -5,6 +5,12 @@ SOFTDEV_VERSION = 7.3.0
 SD=s140
 LD_FILES += boards/SEEED_XIAO_NRF52/XIAO_bootloader.ld boards/nrf52840_1M_256k.ld
 
+# Default location for per-board user C modules. Override by passing
+# USER_C_MODULES on the make command line if needed. This path matches
+# the example build helper `ports/nrf/zenrf.sh` which uses
+# USER_C_MODULES=../../usermod/modules when invoked from `ports/nrf`.
+USER_C_MODULES ?= ../../usermod/modules
+
 NRF_DEFINES += -DNRF52840_XXAA
 
 MICROPY_VFS_LFS2 = 1
