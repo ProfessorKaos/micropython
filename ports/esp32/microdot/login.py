@@ -1,6 +1,6 @@
 from time import time
-from microdot import redirect
-from microdot.microdot import urlencode, invoke_handler
+from ports.esp32.microdot.microdot import redirect
+from ports.esp32.microdot.microdot import urlencode, invoke_handler
 
 
 class Login:

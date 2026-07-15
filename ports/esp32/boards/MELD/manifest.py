@@ -1,11 +1,14 @@
-freeze("$(PORT_DIR)/modules")
 include("$(MPY_DIR)/extmod/asyncio")
+freeze("$(PORT_DIR)/modules")
+package("microdot", base_path="$(PORT_DIR)")
+package("ota", base_path="$(PORT_DIR)")
 
 # Useful networking-related packages.
 require("bundle-networking")
 
 # Require some micropython-lib modules.
 require("aioespnow")
+# require("aioble")
 require("dht")
 # require("ds18x20")
 require("neopixel")

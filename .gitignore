@@ -34,6 +34,5 @@ user.props
 /xtensa-lx106-elf/
 
 # Ignore all directories containing SEREN
-*SEREN*/
 *seren*/
 *zen_mods*/

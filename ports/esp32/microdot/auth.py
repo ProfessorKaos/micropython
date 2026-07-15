@@ -1,5 +1,5 @@
-from microdot import abort
-from microdot.microdot import invoke_handler
+from ports.esp32.microdot.microdot import abort
+from ports.esp32.microdot.microdot import invoke_handler
 
 
 class BaseAuth:

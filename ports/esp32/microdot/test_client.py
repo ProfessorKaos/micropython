@@ -1,8 +1,8 @@
 import json
-from microdot.microdot import Request, Response, AsyncBytesIO
+from ports.esp32.microdot.microdot import Request, Response, AsyncBytesIO
 
 try:
-    from microdot.websocket import WebSocket
+    from ports.esp32.microdot.websocket import WebSocket
 except:  # pragma: no cover  # noqa: E722
     WebSocket = None
 

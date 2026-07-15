@@ -1,6 +1,6 @@
 import jwt
-from microdot.microdot import invoke_handler
-from microdot.helpers import wraps
+from ports.esp32.microdot.microdot import invoke_handler
+from ports.esp32.microdot.helpers import wraps
 
 
 class SessionDict(dict):

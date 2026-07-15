@@ -1,4 +1,4 @@
-from utemplate import recompile
+from ports.esp32.microdot.utemplate import recompile
 
 _loader = None
 
