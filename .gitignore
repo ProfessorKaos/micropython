@@ -36,3 +36,4 @@ user.props
 # Ignore all directories containing SEREN
 *SEREN*/
 *seren*/
+*zen*/
