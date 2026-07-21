@@ -36,3 +36,5 @@ user.props
 # Ignore all directories containing SEREN
 *seren*/
 *zen_mods*/
+.mpy-workbench/.mpyignore
+ports/esp32/boards/MELD/mpconfigboard.cmake

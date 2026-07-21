@@ -4,6 +4,8 @@ set(MICROPY_FROZEN_MANIFEST ${MICROPY_BOARD_DIR}/manifest.py)
 set(SDKCONFIG_DEFAULTS
     boards/sdkconfig.base
     boards/sdkconfig.ble
+    boards/sdkconfig.spiram_sx
+    boards/sdkconfig.240mhz
     boards/sdkconfig.spiram_oct
     boards/MELD/sdkconfig.board
 )
