@@ -1,6 +1,6 @@
 import asyncio
 import json
-from ports.esp32.microdot.helpers import wraps
+from .helpers import wraps
 
 
 class SSE:

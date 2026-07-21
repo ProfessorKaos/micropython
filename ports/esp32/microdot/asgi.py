@@ -1,10 +1,10 @@
 import asyncio
 import os
 import signal
-from ports.esp32.microdot.microdot import *  # noqa: F401, F403
-from ports.esp32.microdot.microdot import Microdot as BaseMicrodot, Request, Response, \
+from .microdot import *  # noqa: F401, F403
+from .microdot import Microdot as BaseMicrodot, Request, Response, \
     NoCaseDict, abort
-from ports.esp32.microdot.websocket import WebSocket as BaseWebSocket, websocket_wrapper
+from .websocket import WebSocket as BaseWebSocket, websocket_wrapper
 
 
 class _BodyStream:  # pragma: no cover
