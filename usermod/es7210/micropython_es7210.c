@@ -80,7 +80,7 @@ static void es7210_i2c_write(es7210_obj_t *self, uint8_t reg, uint8_t val) {
 static mp_obj_t es7210_make_new(const mp_obj_type_t *type,
                                  size_t n_args, size_t n_kw,
                                  const mp_obj_t *args) {
-    mp_arg_check_num(n_args, n_kw, 2, MP_OBJ_FUN_ARGS_MAX, true);
+    mp_arg_check_num(n_args, n_kw, 0, MP_OBJ_FUN_ARGS_MAX, true);
 
     enum { ARG_scl, ARG_sda, ARG_i2c_port, ARG_i2c_addr };
     static const mp_arg_t allowed_args[] = {
@@ -322,7 +322,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(es7210_mic_bias_obj, es7210_mic_bias);
 // ES7210.reset()
 // ---------------------------------------------------------------------------
 
-static mp_obj_t es7210_reset(mp_obj_t self_in) {
+static mp_obj_t es7210_obj_reset(mp_obj_t self_in) {
     es7210_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->handle == NULL) {
         mp_raise_OSError(MP_EBADF);
@@ -330,7 +330,7 @@ static mp_obj_t es7210_reset(mp_obj_t self_in) {
     check_esp_err(es7210_reset(self->handle));
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(es7210_reset_obj, es7210_reset);
+static MP_DEFINE_CONST_FUN_OBJ_1(es7210_obj_reset_obj, es7210_obj_reset);
 
 // ---------------------------------------------------------------------------
 // ES7210.deinit()
@@ -373,7 +373,7 @@ static const mp_rom_map_elem_t es7210_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_volume), MP_ROM_PTR(&es7210_volume_obj) },
     { MP_ROM_QSTR(MP_QSTR_mic_gain), MP_ROM_PTR(&es7210_mic_gain_obj) },
     { MP_ROM_QSTR(MP_QSTR_mic_bias), MP_ROM_PTR(&es7210_mic_bias_obj) },
-    { MP_ROM_QSTR(MP_QSTR_reset), MP_ROM_PTR(&es7210_reset_obj) },
+    { MP_ROM_QSTR(MP_QSTR_reset), MP_ROM_PTR(&es7210_obj_reset_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&es7210_deinit_obj) },
     // Property-style getters
     { MP_ROM_QSTR(MP_QSTR_sample_rate), MP_ROM_PTR(&es7210_get_sample_rate_obj) },

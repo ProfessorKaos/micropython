@@ -9,6 +9,3 @@
 
 #define MICROPY_HW_I2C0_SCL                 (9)
 #define MICROPY_HW_I2C0_SDA                 (8)
-
-// Enable MCLK pin support in the I2S driver.
-#define MICROPY_PY_MACHINE_I2S_MCK          (1)
