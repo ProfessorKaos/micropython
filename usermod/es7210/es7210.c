@@ -10,7 +10,8 @@
 #include "esp_log.h"
 #include "esp_check.h"
 
-const static char *TAG = "ES7210";
+// Chagned static to before const based on warning
+static const char *TAG = "ES7210";
 
 #define IS_ES7210_I2S_FMT(val) (((val)==ES7210_I2S_FMT_I2S) || ((val)==ES7210_I2S_FMT_LJ) || \
         ((val)==ES7210_I2S_FMT_DSP_A) || ((val)==ES7210_I2S_FMT_DSP_B))
@@ -287,8 +288,10 @@ esp_err_t es7210_config_codec(es7210_dev_handle_t handle, const es7210_codec_con
 
     /* Perform software reset */
     ES7210_WRITE_REG(ES7210_RESET_REG00, 0xFF);
-    ES7210_WRITE_REG(ES7210_RESET_REG00, 0x32);
+    ES7210_WRITE_REG(ES7210_RESET_REG00, 0x41); // Old Value 0x32
     /* Set the initialization time when device powers up */
+    /* NEW -  Disable ADC clocks during configuration */
+    // ES7210_WRITE_REG(ES7210_CLOCK_OFF_REG01, 0x3F);
     ES7210_WRITE_REG(ES7210_TIME_CONTROL0_REG09, 0x30);
     ES7210_WRITE_REG(ES7210_TIME_CONTROL1_REG0A, 0x30);
     /* Configure HPF for ADC1-4 */
@@ -296,11 +299,13 @@ esp_err_t es7210_config_codec(es7210_dev_handle_t handle, const es7210_codec_con
     ES7210_WRITE_REG(ES7210_ADC12_HPF2_REG22, 0x0A);
     ES7210_WRITE_REG(ES7210_ADC34_HPF1_REG21, 0x2A);
     ES7210_WRITE_REG(ES7210_ADC34_HPF2_REG20, 0x0A);
+    /* NEW -  Set slave mode — ES7210 defaults to master and would drive BCLK/LRCK */
+    ES7210_WRITE_REG(ES7210_MODE_CONFIG_REG08, 0x00);
     /* Set bits per sample to 16, data protocal to I2S, enable 1xFS TDM */
     ESP_RETURN_ON_ERROR(es7210_set_i2s_format(handle, codec_conf->i2s_format, codec_conf->bit_width,
                         codec_conf->flags.tdm_enable), TAG, "error while setting i2s format");
     /* Configure analog power and VMID voltage */
-    ES7210_WRITE_REG(ES7210_ANALOG_REG40, 0xC3);
+    ES7210_WRITE_REG(ES7210_ANALOG_REG40, 0x43); // Old Value 0xC3
     /* Set MIC14 bias to 2.87V */
     ESP_RETURN_ON_ERROR(es7210_set_mic_bias(handle, codec_conf->mic_bias), TAG, "error while setting mic bias");
     /* Set MIC1-4 gain to 30dB */
@@ -313,8 +318,10 @@ esp_err_t es7210_config_codec(es7210_dev_handle_t handle, const es7210_codec_con
     /* Set ADC sample rate to 48kHz */
     ESP_RETURN_ON_ERROR(es7210_set_i2s_sample_rate(handle, codec_conf->sample_rate_hz, codec_conf->mclk_ratio),
                         TAG, "error while setting sample rate");
+    /* NEW -  Enable ADC clocks (disabled during config to prevent spurious edges) */
+    // ES7210_WRITE_REG(ES7210_CLOCK_OFF_REG01, 0x00);
     /* Power down DLL */
-    ES7210_WRITE_REG(ES7210_POWER_DOWN_REG06, 0x04);
+    ES7210_WRITE_REG(ES7210_POWER_DOWN_REG06, 0x00); // Old Value 0x04
     /* Power on MIC1-4 bias & ADC1-4 & PGA1-4 Power */
     ES7210_WRITE_REG(ES7210_MIC12_POWER_REG4B, 0x0F);
     ES7210_WRITE_REG(ES7210_MIC34_POWER_REG4C, 0x0F);
