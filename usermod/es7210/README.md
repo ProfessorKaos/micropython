@@ -16,7 +16,7 @@ Audio data flows through the separate `machine.I2S` class — this module handle
 ## Requirements
 
 - **ESP32 port** with `MICROPY_PY_MACHINE_I2S_MCK` enabled (added by this module's setup)
-- **I2C** bus for codec configuration (module manages this internally)
+- **I2C** bus for codec configuration (provided by the caller via `machine.I2C`)
 - **I2S** with MCK output for audio capture (via `machine.I2S(mck=...)`)
 - No Arduino dependencies
 
@@ -62,15 +62,17 @@ import es7210
 #### Constructor
 
 ```python
-codec = es7210.ES7210(scl, sda, *, i2c_port=0, i2c_addr=0x40)
+codec = es7210.ES7210(i2c, *, addr=0x40)
 ```
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
-| `scl` | `int` | *(required)* | GPIO number for I2C SCL |
-| `sda` | `int` | *(required)* | GPIO number for I2C SDA |
-| `i2c_port` | `int` | `0` | I2C peripheral number (0 or 1) |
-| `i2c_addr` | `int` | `0x40` | 7-bit address (see table below) |
+| `i2c` | `machine.I2C` | *(required)* | Initialised `machine.I2C` or `machine.SoftI2C` object |
+| `addr` | `int` | `0x40` | 7-bit I2C slave address (see table below) |
+
+The caller is responsible for creating and managing the `machine.I2C` bus.
+The module does **not** install or uninstall any I2C driver — it reuses the
+provided bus for all communication with the ES7210.
 
 Valid addresses (selected by AD1/AD0 pins):
 
@@ -144,7 +146,9 @@ Software reset — returns the codec to power-on state.
 
 #### `codec.deinit()`
 
-Deletes the codec handle and uninstalls the I2C driver.  
+Deletes the codec handle.  The I2C bus is **not** touched — the caller
+owns the `machine.I2C` object and must deinit it separately (or let the
+garbage collector handle it).
 Called automatically by the garbage collector (`__del__`).
 
 #### Property getters
@@ -207,11 +211,16 @@ Returns values cached from the last `init()` call (0 if not yet called).
 ## Usage Example
 
 ```python
+import machine
 import es7210
 from machine import I2S, Pin
 
-# Configure the codec
-codec = es7210.ES7210(scl=18, sda=19)
+# Create and manage I2C bus at application level
+# (share this bus with other I2C peripherals as needed)
+i2c = machine.I2C(0, scl=18, sda=19, freq=400000)
+
+# Pass the bus to the ES7210 module — no internal I2C driver management
+codec = es7210.ES7210(i2c, addr=0x40)
 codec.init(
     sample_rate=48000,
     mic_gain=es7210.MIC_GAIN_30DB,

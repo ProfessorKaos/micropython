@@ -2,7 +2,8 @@
 //
 // Provides:  import es7210
 //
-//   codec = es7210.ES7210(scl=18, sda=19)
+//   i2c = machine.I2C(0, scl=18, sda=19)
+//   codec = es7210.ES7210(i2c)
 //   codec.init(sample_rate=48000, ...)
 //   codec.volume(0)
 //   codec.mic_gain(es7210.MIC_GAIN_30DB, channel=1)
@@ -12,13 +13,16 @@
 //
 // The ES7210 is an I2C-configurable 4-channel audio ADC.
 // Audio data flows through the separate machine.I2S class.
+// I2C bus is provided by the caller via machine.I2C — the module
+// does NOT manage its own I2C driver.
 
 #include "py/runtime.h"
 #include "py/obj.h"
 #include "py/mperrno.h"
 
-#include "driver/i2c.h"
 #include "esp_err.h"
+
+#include "extmod/modmachine.h"
 
 #include "es7210.h"
 #include "es7210_reg.h"
@@ -30,9 +34,8 @@
 typedef struct _es7210_obj_t {
     mp_obj_base_t base;
     es7210_dev_handle_t handle;
-    i2c_port_t i2c_port;
+    mp_obj_t i2c_obj;          /* machine.I2C Python object (pinned for GC) */
     uint8_t i2c_addr;
-    bool i2c_driver_installed;
     // Cached config for query methods
     uint32_t sample_rate;
     es7210_i2s_bits_t bit_width;
@@ -45,10 +48,19 @@ typedef struct _es7210_obj_t {
 
 extern const mp_obj_type_t es7210_type;
 
+// I2C transport function (defined after the helpers, declared here for use by
+// es7210_i2c_write).
+static esp_err_t es7210_mp_i2c_write(void *ctx, uint8_t i2c_addr,
+                                      uint8_t reg_addr, uint8_t reg_val);
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+// mphalport.h defines check_esp_err as a macro expanding to check_esp_err_(),
+// which would conflict with our function name.  Undefine it so we can use
+// our own static helper.
+#undef check_esp_err
 static void check_esp_err(esp_err_t err) {
     if (err != ESP_OK) {
         mp_raise_msg_varg(&mp_type_OSError,
@@ -56,97 +68,108 @@ static void check_esp_err(esp_err_t err) {
     }
 }
 
-// Write a single ES7210 register via I2C (for functions not exposed in the
-// low-level driver's public API, e.g. per-channel mic gain).
+// Write a single ES7210 register via the I2C transport
+// (used for per-channel mic gain, mic bias, etc.).
+// The transport function is es7210_mp_i2c_write declared below.
 static void es7210_i2c_write(es7210_obj_t *self, uint8_t reg, uint8_t val) {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    if (cmd == NULL) {
-        mp_raise_OSError(MP_ENOMEM);
-    }
-    ESP_ERROR_CHECK(i2c_master_start(cmd));
-    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (self->i2c_addr << 1) | I2C_MASTER_WRITE, true));
-    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, reg, true));
-    ESP_ERROR_CHECK(i2c_master_write_byte(cmd, val, true));
-    ESP_ERROR_CHECK(i2c_master_stop(cmd));
-    esp_err_t err = i2c_master_cmd_begin(self->i2c_port, cmd, pdMS_TO_TICKS(1000));
-    i2c_cmd_link_delete(cmd);
+    esp_err_t err = es7210_mp_i2c_write(self, self->i2c_addr, reg, val);
     check_esp_err(err);
 }
 
+// -------------------------------------------------------------------------
+// I2C transport that delegates to a machine.I2C (or machine.SoftI2C) object
+// -------------------------------------------------------------------------
+
+static esp_err_t es7210_mp_i2c_write(void *ctx, uint8_t i2c_addr,
+                                      uint8_t reg_addr, uint8_t reg_val)
+{
+    es7210_obj_t *self = (es7210_obj_t *)ctx;
+
+    const mp_obj_type_t *type = mp_obj_get_type(self->i2c_obj);
+    const mp_machine_i2c_p_t *i2c_p =
+        (const mp_machine_i2c_p_t *)MP_OBJ_TYPE_GET_SLOT(type, protocol);
+    if (i2c_p == NULL || i2c_p->transfer == NULL) {
+        return ESP_FAIL;
+    }
+
+    mp_obj_base_t *i2c_base = (mp_obj_base_t *)MP_OBJ_TO_PTR(self->i2c_obj);
+
+    mp_machine_i2c_buf_t bufs[2];
+    bufs[0].len = 1;
+    bufs[0].buf = &reg_addr;
+    bufs[1].len = 1;
+    bufs[1].buf = &reg_val;
+
+    int ret = i2c_p->transfer(i2c_base, (uint16_t)i2c_addr, 2, bufs,
+                               MP_MACHINE_I2C_FLAG_STOP);
+    return (ret >= 0) ? ESP_OK : ESP_FAIL;
+}
+
 // ---------------------------------------------------------------------------
-// ES7210 constructor:  ES7210(scl, sda, *, i2c_port=0, i2c_addr=0x40)
+// ES7210 constructor:  ES7210(i2c, *, addr=0x40)
+//
+//   i2c  — a machine.I2C or machine.SoftI2C object (must be initialised)
+//   addr — 7-bit I2C slave address of the ES7210 (default 0x40)
 // ---------------------------------------------------------------------------
 
 static mp_obj_t es7210_make_new(const mp_obj_type_t *type,
                                  size_t n_args, size_t n_kw,
                                  const mp_obj_t *args) {
-    mp_arg_check_num(n_args, n_kw, 0, MP_OBJ_FUN_ARGS_MAX, true);
+    mp_arg_check_num(n_args, n_kw, 1, MP_OBJ_FUN_ARGS_MAX, true);
 
-    enum { ARG_scl, ARG_sda, ARG_i2c_port, ARG_i2c_addr };
+    enum { ARG_i2c, ARG_addr };
     static const mp_arg_t allowed_args[] = {
-        { MP_QSTR_scl, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = -1} },
-        { MP_QSTR_sda, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = -1} },
-        { MP_QSTR_i2c_port, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
-        { MP_QSTR_i2c_addr, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = ES7210_ADDRRES_00} },
+        { MP_QSTR_i2c, MP_ARG_REQUIRED | MP_ARG_OBJ },
+        { MP_QSTR_addr, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = ES7210_ADDRRES_00} },
     };
 
     mp_arg_val_t parsed[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all_kw_array(n_args, n_kw, args,
         MP_ARRAY_SIZE(allowed_args), allowed_args, parsed);
 
-    int scl = parsed[ARG_scl].u_int;
-    int sda = parsed[ARG_sda].u_int;
-    int i2c_port = parsed[ARG_i2c_port].u_int;
-    int i2c_addr = parsed[ARG_i2c_addr].u_int;
-
-    // Validate I2C port
-    if (i2c_port < 0 || i2c_port >= I2C_NUM_MAX) {
-        mp_raise_msg_varg(&mp_type_ValueError,
-            MP_ERROR_TEXT("invalid i2c_port: %d"), i2c_port);
-    }
+    mp_obj_t i2c_obj = parsed[ARG_i2c].u_obj;
+    int i2c_addr = parsed[ARG_addr].u_int;
 
     // Validate address
     if (i2c_addr != ES7210_ADDRRES_00 && i2c_addr != ES7210_ADDRESS_01 &&
         i2c_addr != ES7210_ADDRESS_10 && i2c_addr != ES7210_ADDRESS_11) {
         mp_raise_msg_varg(&mp_type_ValueError,
-            MP_ERROR_TEXT("invalid i2c_addr: 0x%02x"), i2c_addr);
+            MP_ERROR_TEXT("invalid addr: 0x%02x"), i2c_addr);
+    }
+
+    // Check that the passed object has the I2C protocol
+    const mp_obj_type_t *obj_type = mp_obj_get_type(i2c_obj);
+    const mp_machine_i2c_p_t *i2c_p =
+        (const mp_machine_i2c_p_t *)MP_OBJ_TYPE_GET_SLOT(obj_type, protocol);
+    if (i2c_p == NULL || i2c_p->transfer == NULL) {
+        mp_raise_TypeError(
+            MP_ERROR_TEXT("object does not implement the I2C protocol"));
     }
 
     // Allocate object with finaliser
     es7210_obj_t *self = mp_obj_malloc_with_finaliser(es7210_obj_t, type);
     self->handle = NULL;
-    self->i2c_port = (i2c_port_t)i2c_port;
+    self->i2c_obj = i2c_obj;           // Pin for garbage collector
     self->i2c_addr = (uint8_t)i2c_addr;
-    self->i2c_driver_installed = false;
     self->sample_rate = 0;
     self->bit_width = ES7210_I2S_BITS_16B;
     self->i2s_format = ES7210_I2S_FMT_I2S;
 
-    // Install I2C driver (master mode, 400 kHz)
-    i2c_config_t i2c_conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = sda,
-        .scl_io_num = scl,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = 400000,
+    // Build transport: ctx = self (es7210_obj_t *), write = static wrapper
+    es7210_i2c_transport_t transport = {
+        .ctx = self,
+        .write = es7210_mp_i2c_write,
     };
-    check_esp_err(i2c_param_config(self->i2c_port, &i2c_conf));
-    check_esp_err(i2c_driver_install(self->i2c_port, I2C_MODE_MASTER, 0, 0, 0));
-    self->i2c_driver_installed = true;
-
-    // Create codec handle (stores I2C address; does NOT touch hardware yet)
-    es7210_i2c_config_t codec_i2c = {
-        .i2c_port = self->i2c_port,
-        .i2c_addr = self->i2c_addr,
-    };
-    check_esp_err(es7210_new_codec(&codec_i2c, &self->handle));
+    check_esp_err(es7210_new_codec((uint8_t)i2c_addr, &transport, &self->handle));
 
     return MP_OBJ_FROM_PTR(self);
 }
 
 // ---------------------------------------------------------------------------
 // ES7210.__del__  (finaliser)
+//
+// The I2C bus is NOT managed here — the caller owns the machine.I2C object
+// and must deinit it separately (or let the GC handle it).
 // ---------------------------------------------------------------------------
 
 static mp_obj_t es7210_del(mp_obj_t self_in) {
@@ -155,10 +178,7 @@ static mp_obj_t es7210_del(mp_obj_t self_in) {
         es7210_del_codec(self->handle);
         self->handle = NULL;
     }
-    if (self->i2c_driver_installed) {
-        i2c_driver_delete(self->i2c_port);
-        self->i2c_driver_installed = false;
-    }
+    self->i2c_obj = MP_OBJ_NULL;      // Release reference (GC may collect)
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(es7210_del_obj, es7210_del);

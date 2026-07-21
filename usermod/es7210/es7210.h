@@ -13,7 +13,6 @@
 
 #include <stdint.h>
 #include "esp_err.h"
-#include "driver/i2c.h"
 
 /**
  * @brief I2C address of the ES7210
@@ -101,19 +100,35 @@ typedef enum {
 } es7210_mic_bias_t;
 
 /**
+ * @brief I2C transport write function
+ *
+ * @param[in] ctx User-provided context from the transport struct
+ * @param[in] i2c_addr 7-bit I2C slave address
+ * @param[in] reg_addr Register address to write
+ * @param[in] reg_val Value to write
+ * @return
+ *          - ESP_OK        Write succeeded
+ *          - ESP_FAIL      I2C communication error (NACK, bus error)
+ *          - ESP_ERR_TIMEOUT  Bus timeout
+ */
+typedef esp_err_t (*es7210_i2c_write_f)(void *ctx, uint8_t i2c_addr, uint8_t reg_addr, uint8_t reg_val);
+
+/**
+ * @brief ES7210 I2C transport
+ *
+ * Plug a custom I2C transport into the low-level driver.
+ * The default ESP-IDF implementation is provided by es7210_transport_esp_default_write().
+ */
+typedef struct {
+    void *ctx;                  /*!< User context passed to es7210_i2c_write_f */
+    es7210_i2c_write_f write;   /*!< Write function */
+} es7210_i2c_transport_t;
+
+/**
  * @brief Type of es7210 device handle
  *
  */
 typedef struct es7210_dev_t *es7210_dev_handle_t;
-
-/**
- * @brief ES7210 I2C config struct
- *
- */
-typedef struct {
-    i2c_port_t  i2c_port;           /*!< I2C port used to connecte ES7210 device */
-    uint8_t     i2c_addr;           /*!< I2C address of ES7210 device, can be 0x40 0x41 0x42 or 0x43 according to A0 and A1 pin */
-} es7210_i2c_config_t;
 
 /**
  * @brief ES7210 codec config struct
@@ -132,9 +147,15 @@ typedef struct {
 } es7210_codec_config_t;
 
 /**
- * @brief Create new ES7210 device handle.
+ * @brief Create new ES7210 device handle with a custom I2C transport.
  *
- * @param[in]  i2c_conf Config for I2C used by ES7210
+ * The transport provides the low-level I2C write access.  Pass
+ * es7210_transport_esp_default() for direct ESP-IDF usage, or a
+ * custom transport (e.g. backed by a machine.I2C object) for use
+ * inside MicroPython.
+ *
+ * @param[in]  i2c_addr  7-bit I2C slave address (0x40 .. 0x43)
+ * @param[in]  transport I2C transport (write function + context)
  * @param[out] handle_out New ES7210 device handle
  * @return
  *          - ESP_OK                  Device handle creation success.
@@ -142,7 +163,7 @@ typedef struct {
  *          - ESP_ERR_NO_MEM          Memory allocation failed.
  *
  */
-esp_err_t es7210_new_codec(const es7210_i2c_config_t *i2c_conf, es7210_dev_handle_t *handle_out);
+esp_err_t es7210_new_codec(uint8_t i2c_addr, const es7210_i2c_transport_t *transport, es7210_dev_handle_t *handle_out);
 
 /**
  * @brief Delete ES7210 device handle.
@@ -188,6 +209,19 @@ esp_err_t es7210_config_codec(es7210_dev_handle_t handle, const es7210_codec_con
 esp_err_t es7210_config_volume(es7210_dev_handle_t handle, int8_t volume_db);
 
 esp_err_t es7210_reset(es7210_dev_handle_t handle);
+
+/**
+ * @brief Default ESP-IDF I2C transport builder.
+ *
+ * Creates a transport that uses the ESP-IDF legacy I2C driver on the
+ * specified I2C port.  Use this when the ES7210 is driven directly
+ * from C/ESP-IDF code without MicroPython.
+ *
+ * @param[in]  i2c_port I2C port number (I2C_NUM_0, I2C_NUM_1, …)
+ * @param[out] transport_out Filled transport struct
+ */
+void es7210_transport_esp_default(int i2c_port, es7210_i2c_transport_t *transport_out);
+
 #ifdef __cplusplus
 }
 #endif

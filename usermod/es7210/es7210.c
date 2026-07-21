@@ -5,10 +5,12 @@
  */
 
 #include <inttypes.h>
+#include <assert.h>
 #include "es7210.h"
 #include "es7210_reg.h"
 #include "esp_log.h"
 #include "esp_check.h"
+#include "driver/i2c.h"
 
 // Chagned static to before const based on warning
 static const char *TAG = "ES7210";
@@ -31,8 +33,9 @@ static const char *TAG = "ES7210";
 } while(0)
 
 struct es7210_dev_t {
-    i2c_port_t  i2c_port;
     uint8_t     i2c_addr;
+    void       *i2c_ctx;          /* context passed to i2c_write */
+    es7210_i2c_write_f i2c_write; /* transport function */
 };
 
 /**
@@ -128,27 +131,9 @@ static const coeff_div_t *es7210_get_coeff(uint32_t mclk, uint32_t lrck)
 static esp_err_t es7210_write_reg(es7210_dev_handle_t handle, uint8_t reg_addr, uint8_t reg_val)
 {
     ESP_RETURN_ON_FALSE(handle, ESP_ERR_INVALID_ARG, TAG, "invalid device handle");
-    esp_err_t ret = ESP_OK;
+    ESP_RETURN_ON_FALSE(handle->i2c_write, ESP_ERR_INVALID_ARG, TAG, "no I2C transport");
 
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    ESP_GOTO_ON_FALSE(cmd, ESP_ERR_NO_MEM, err, TAG, "memory allocation for i2c cmd handle failed");
-
-    ESP_GOTO_ON_ERROR(i2c_master_start(cmd), err, TAG, "error while appending i2c command");
-    ESP_GOTO_ON_ERROR(i2c_master_write_byte(cmd, handle->i2c_addr << 1 | I2C_MASTER_WRITE, true),
-                      err, TAG, "error while appending i2c command");
-    ESP_GOTO_ON_ERROR(i2c_master_write_byte(cmd, reg_addr, true), err,
-                      TAG, "error while appending i2c command");
-    ESP_GOTO_ON_ERROR(i2c_master_write_byte(cmd, reg_val, true), err,
-                      TAG, "error while appending i2c command");
-    ESP_GOTO_ON_ERROR(i2c_master_stop(cmd), err, TAG, "error while appending i2c command");
-
-    ESP_GOTO_ON_ERROR(i2c_master_cmd_begin(handle->i2c_port, cmd, pdMS_TO_TICKS(1000)),
-                      err, TAG, "error while writing register");
-err:
-    if (cmd) {
-        i2c_cmd_link_delete(cmd);
-    }
-    return ret;
+    return handle->i2c_write(handle->i2c_ctx, handle->i2c_addr, reg_addr, reg_val);
 }
 
 static esp_err_t es7210_set_i2s_format(es7210_dev_handle_t handle, es7210_i2s_fmt_t i2s_format,
@@ -257,16 +242,18 @@ static esp_err_t es7210_set_mic_bias(es7210_dev_handle_t handle, es7210_mic_bias
     return ESP_OK;
 }
 
-esp_err_t es7210_new_codec(const es7210_i2c_config_t *i2c_conf, es7210_dev_handle_t *handle_out)
+esp_err_t es7210_new_codec(uint8_t i2c_addr, const es7210_i2c_transport_t *transport, es7210_dev_handle_t *handle_out)
 {
-    ESP_RETURN_ON_FALSE(i2c_conf, ESP_ERR_INVALID_ARG, TAG, "invalid device config pointer");
     ESP_RETURN_ON_FALSE(handle_out, ESP_ERR_INVALID_ARG, TAG, "invalid device handle pointer");
+    ESP_RETURN_ON_FALSE(transport, ESP_ERR_INVALID_ARG, TAG, "invalid transport pointer");
+    ESP_RETURN_ON_FALSE(transport->write, ESP_ERR_INVALID_ARG, TAG, "transport write function is NULL");
 
     struct es7210_dev_t *handle = calloc(1, sizeof(struct es7210_dev_t));
     ESP_RETURN_ON_FALSE(handle, ESP_ERR_NO_MEM, TAG, "memory allocation for device handler failed");
 
-    handle->i2c_port = i2c_conf->i2c_port;
-    handle->i2c_addr = i2c_conf->i2c_addr;
+    handle->i2c_addr = i2c_addr;
+    handle->i2c_ctx = transport->ctx;
+    handle->i2c_write = transport->write;
 
     *handle_out = handle;
     return ESP_OK;
@@ -281,6 +268,47 @@ esp_err_t es7210_del_codec(es7210_dev_handle_t handle)
     return ESP_OK;
 }
 
+/* -----------------------------------------------------------------------
+ * Default I2C transport — uses the ESP-IDF legacy I2C driver directly.
+ * Caller must have installed an I2C master driver on `i2c_port` already.
+ * ----------------------------------------------------------------------- */
+
+typedef struct {
+    i2c_port_t i2c_port;
+} es7210_esp_i2c_ctx_t;
+
+static esp_err_t es7210_esp_i2c_write(void *ctx, uint8_t i2c_addr, uint8_t reg_addr, uint8_t reg_val)
+{
+    es7210_esp_i2c_ctx_t *c = (es7210_esp_i2c_ctx_t *)ctx;
+    esp_err_t ret = ESP_OK;
+
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    if (cmd == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, i2c_addr << 1 | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, reg_addr, true);
+    i2c_master_write_byte(cmd, reg_val, true);
+    i2c_master_stop(cmd);
+
+    ret = i2c_master_cmd_begin(c->i2c_port, cmd, pdMS_TO_TICKS(1000));
+    i2c_cmd_link_delete(cmd);
+
+    return ret;
+}
+
+void es7210_transport_esp_default(int i2c_port, es7210_i2c_transport_t *transport_out)
+{
+    es7210_esp_i2c_ctx_t *ctx = calloc(1, sizeof(es7210_esp_i2c_ctx_t));
+    assert(ctx); /* extremely unlikely to fail for such a small allocation */
+    ctx->i2c_port = (i2c_port_t)i2c_port;
+
+    transport_out->ctx = ctx;
+    transport_out->write = es7210_esp_i2c_write;
+}
+
 esp_err_t es7210_config_codec(es7210_dev_handle_t handle, const es7210_codec_config_t *codec_conf)
 {
     ESP_RETURN_ON_FALSE(handle, ESP_ERR_INVALID_ARG, TAG, "invalid device handle pointer");
@@ -288,7 +316,7 @@ esp_err_t es7210_config_codec(es7210_dev_handle_t handle, const es7210_codec_con
 
     /* Perform software reset */
     ES7210_WRITE_REG(ES7210_RESET_REG00, 0xFF);
-    ES7210_WRITE_REG(ES7210_RESET_REG00, 0x41); // Old Value 0x32
+    ES7210_WRITE_REG(ES7210_RESET_REG00, 0x41); // Old Value 0x32 - New Value 0x41
     /* Set the initialization time when device powers up */
     /* NEW -  Disable ADC clocks during configuration */
     // ES7210_WRITE_REG(ES7210_CLOCK_OFF_REG01, 0x3F);
@@ -300,12 +328,12 @@ esp_err_t es7210_config_codec(es7210_dev_handle_t handle, const es7210_codec_con
     ES7210_WRITE_REG(ES7210_ADC34_HPF1_REG21, 0x2A);
     ES7210_WRITE_REG(ES7210_ADC34_HPF2_REG20, 0x0A);
     /* NEW -  Set slave mode — ES7210 defaults to master and would drive BCLK/LRCK */
-    ES7210_WRITE_REG(ES7210_MODE_CONFIG_REG08, 0x00);
+    // ES7210_WRITE_REG(ES7210_MODE_CONFIG_REG08, 0x00);
     /* Set bits per sample to 16, data protocal to I2S, enable 1xFS TDM */
     ESP_RETURN_ON_ERROR(es7210_set_i2s_format(handle, codec_conf->i2s_format, codec_conf->bit_width,
                         codec_conf->flags.tdm_enable), TAG, "error while setting i2s format");
     /* Configure analog power and VMID voltage */
-    ES7210_WRITE_REG(ES7210_ANALOG_REG40, 0x43); // Old Value 0xC3
+    ES7210_WRITE_REG(ES7210_ANALOG_REG40, 0x43); // Old Value 0xC3 - New Value 0x43
     /* Set MIC14 bias to 2.87V */
     ESP_RETURN_ON_ERROR(es7210_set_mic_bias(handle, codec_conf->mic_bias), TAG, "error while setting mic bias");
     /* Set MIC1-4 gain to 30dB */
@@ -321,7 +349,7 @@ esp_err_t es7210_config_codec(es7210_dev_handle_t handle, const es7210_codec_con
     /* NEW -  Enable ADC clocks (disabled during config to prevent spurious edges) */
     // ES7210_WRITE_REG(ES7210_CLOCK_OFF_REG01, 0x00);
     /* Power down DLL */
-    ES7210_WRITE_REG(ES7210_POWER_DOWN_REG06, 0x00); // Old Value 0x04
+    ES7210_WRITE_REG(ES7210_POWER_DOWN_REG06, 0x00); // Old Value 0x04 - New Value 0x00
     /* Power on MIC1-4 bias & ADC1-4 & PGA1-4 Power */
     ES7210_WRITE_REG(ES7210_MIC12_POWER_REG4B, 0x0F);
     ES7210_WRITE_REG(ES7210_MIC34_POWER_REG4C, 0x0F);
