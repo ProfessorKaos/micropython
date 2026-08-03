@@ -1,9 +1,10 @@
-#freeze("$(PORT_DIR)/seren_modules")
+freeze("$(PORT_DIR)/modules")
 #freeze("/home/alexx/Zen-Specs/Code_device/app")
-package("app", base_path="~/Zen-Specs/Code_device/)
-package("microdot", base_path="~/Zen-Specs/Code_device/)
-package("ota", base_path="~/Zen-Specs/Code_device/)
-package("static", base_path="~/Zen-Specs/Code_device/)
+package("app", base_path="../../../../../Zen-Specs/Code_device/")
+package("microdot", base_path="../../../../../Zen-Specs/Code_device/")
+package("ota", base_path="../../../../../Zen-Specs/Code_device/")
+package("static", base_path="../../../../../Zen-Specs/Code_device/")
+freeze("../../../../../Zen-Specs/Code_device/", script="main.py")
 
 include("$(MPY_DIR)/extmod/asyncio")
 
@@ -15,4 +16,3 @@ require("aioespnow")
 require("neopixel")
 require("aioble-server")
 require("aioble-peripheral")
-

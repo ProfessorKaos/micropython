@@ -6,6 +6,7 @@ set(SDKCONFIG_DEFAULTS
     boards/sdkconfig.ble
     boards/sdkconfig.spiram_sx
     boards/SEREN_S3/sdkconfig.board
+    boards/SEREN_S3/sdkconfig.ota
 )
 
 # Override WLAN implementation

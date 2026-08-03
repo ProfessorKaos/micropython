@@ -19,4 +19,5 @@ get_filename_component(_MICROPY_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../../.. ABSOL
 set(USER_C_MODULES
     ${_MICROPY_ROOT}/usermod/es7210/micropython.cmake
     ${_MICROPY_ROOT}/usermod/opus_enc/micropython.cmake
+    ${_MICROPY_ROOT}/usermod/es7210/micropython.cmake
 )
