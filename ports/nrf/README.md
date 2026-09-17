@@ -50,7 +50,7 @@ This is a port of MicroPython to the Nordic Semiconductor nRF series of chips.
 
 Prerequisite steps for building the nrf port:
 
-    git clone <URL>.git micropython
+    git clone <URL></url>.git micropython
     cd micropython
     make -C mpy-cross
 
@@ -113,6 +113,7 @@ In case of using the target board's makefile, add a line similar to this:
 In these two examples, the manual `make` invocation will have precedence.
 
 ## Enable MICROPY_VFS_FAT
+
 As the `oofatfs` module is not having header guards that can exclude the implementation compile time, this port provides a flag to enable it explicitly. The MICROPY_VFS_FAT is by default set to 0 and has to be set to 1 if `oofatfs` files should be compiled. This will be in addition of setting `MICROPY_VFS` in mpconfigport.h.
 
 For example:
@@ -149,27 +150,27 @@ location.
 
 ## Target Boards and Make Flags
 
-Target Board (BOARD) | Bluetooth Stack (SD)    | Bluetooth Support      | Bootloader     | Default Flash Util
----------------------|-------------------------|------------------------|----------------|-------------------
-MICROBIT             | s110                    | Peripheral             |                | [PyOCD](#pyocdopenocd-targets)
-PCA10000             | s110                    | Peripheral             |                | [Segger](#segger-targets)
-PCA10001             | s110                    | Peripheral             |                | [Segger](#segger-targets)
-PCA10028             | s110                    | Peripheral             |                | [Segger](#segger-targets)
-PCA10031             | s110                    | Peripheral             |                | [Segger](#segger-targets)
-WT51822_S4AT         | s110                    | Peripheral             |                | Manual, see [datasheet](https://4tronix.co.uk/picobot2/WT51822-S4AT.pdf) for pinout
-PCA10040             | s132                    | Peripheral and Central |                | [Segger](#segger-targets)
-FEATHER52            | s132                    | Peripheral and Central |                | Manual, SWDIO and SWCLK solder points on the bottom side of the board
-ARDUINO_PRIMO        | s132                    | Peripheral and Central |                | [PyOCD](#pyocdopenocd-targets)
-IBK_BLYST_NANO       | s132                    | Peripheral and Central |                | [IDAP](#idap-midap-link-targets)
-IDK_BLYST_NANO       | s132                    | Peripheral and Central |                | [IDAP](#idap-midap-link-targets)
-BLUEIO_TAG_EVIM      | s132                    | Peripheral and Central |                | [IDAP](#idap-midap-link-targets)
-EVK_NINA_B1          | s132                    | Peripheral and Central |                | [Segger](#segger-targets)
-PCA10056             | s140                    | Peripheral and Central |                | [Segger](#segger-targets)
-PCA10059             | s140                    | Peripheral and Central | OpenBootloader | [nrfutil](#nrfutil-targets)
-PARTICLE_XENON       | s140                    | Peripheral and Central |                | [Black Magic Probe](#black-magic-probe-targets)
-NRF52840_MDK_USB_DONGLE | s140                 | Peripheral and Central | OpenBootloader | [nrfutil](#nrfutil-targets)
-PCA10090             | None (bsdlib.a)         | None (LTE/GNSS)        |                | [Segger](#segger-targets)
-ACTINIUS_ICARUS      | None (bsdlib.a)         | None (LTE/GNSS)        |                | [Segger](#segger-targets)
+| Target Board (BOARD)    | Bluetooth Stack (SD) | Bluetooth Support      | Bootloader     | Default Flash Util                                                                |
+| ----------------------- | -------------------- | ---------------------- | -------------- | --------------------------------------------------------------------------------- |
+| MICROBIT                | s110                 | Peripheral             |                | [PyOCD](#pyocdopenocd-targets)                                                     |
+| PCA10000                | s110                 | Peripheral             |                | [Segger](#segger-targets)                                                          |
+| PCA10001                | s110                 | Peripheral             |                | [Segger](#segger-targets)                                                          |
+| PCA10028                | s110                 | Peripheral             |                | [Segger](#segger-targets)                                                          |
+| PCA10031                | s110                 | Peripheral             |                | [Segger](#segger-targets)                                                          |
+| WT51822_S4AT            | s110                 | Peripheral             |                | Manual, see[datasheet](https://4tronix.co.uk/picobot2/WT51822-S4AT.pdf) for pinout |
+| PCA10040                | s132                 | Peripheral and Central |                | [Segger](#segger-targets)                                                          |
+| FEATHER52               | s132                 | Peripheral and Central |                | Manual, SWDIO and SWCLK solder points on the bottom side of the board             |
+| ARDUINO_PRIMO           | s132                 | Peripheral and Central |                | [PyOCD](#pyocdopenocd-targets)                                                     |
+| IBK_BLYST_NANO          | s132                 | Peripheral and Central |                | [IDAP](#idap-midap-link-targets)                                                   |
+| IDK_BLYST_NANO          | s132                 | Peripheral and Central |                | [IDAP](#idap-midap-link-targets)                                                   |
+| BLUEIO_TAG_EVIM         | s132                 | Peripheral and Central |                | [IDAP](#idap-midap-link-targets)                                                   |
+| EVK_NINA_B1             | s132                 | Peripheral and Central |                | [Segger](#segger-targets)                                                          |
+| PCA10056                | s140                 | Peripheral and Central |                | [Segger](#segger-targets)                                                          |
+| PCA10059                | s140                 | Peripheral and Central | OpenBootloader | [nrfutil](#nrfutil-targets)                                                        |
+| PARTICLE_XENON          | s140                 | Peripheral and Central |                | [Black Magic Probe](#black-magic-probe-targets)                                    |
+| NRF52840_MDK_USB_DONGLE | s140                 | Peripheral and Central | OpenBootloader | [nrfutil](#nrfutil-targets)                                                        |
+| PCA10090                | None (bsdlib.a)      | None (LTE/GNSS)        |                | [Segger](#segger-targets)                                                          |
+| ACTINIUS_ICARUS         | None (bsdlib.a)      | None (LTE/GNSS)        |                | [Segger](#segger-targets)                                                          |
 
 ## IDAP-M/IDAP-Link Targets
 
@@ -178,7 +179,6 @@ Install the necessary tools to flash and debug using IDAP-M/IDAP-Link CMSIS-DAP 
 [IDAPnRFProg for Linux](https://sourceforge.net/projects/idaplinkfirmware/files/Linux/IDAPnRFProg_1_7_190320.zip/download)
 [IDAPnRFProg for OSX](https://sourceforge.net/projects/idaplinkfirmware/files/OSX/IDAPnRFProg_1_7_190320.zip/download)
 [IDAPnRFProg for Windows](https://sourceforge.net/projects/idaplinkfirmware/files/Windows/IDAPnRFProg_1_7_190320.zip/download)
-
 
 ## Segger Targets
 
@@ -243,14 +243,15 @@ The port also implements a BLE REPL driver. This feature is disabled by default,
 The configuration can be enabled by editing the `bluetooth_conf.h` and set `MICROPY_PY_BLE_NUS` to 1.
 
 When enabled you have different options to test it:
+
 * [NUS Console for Linux](https://github.com/tralamazza/nus_console) (recommended)
 * [WebBluetooth REPL](https://aykevl.nl/apps/nus/) (experimental)
 
 Other:
+
 * nRF UART application for IPhone/Android
 
 WebBluetooth mode can also be configured by editing `bluetooth_conf.h` and set `BLUETOOTH_WEBBLUETOOTH_REPL` to 1. This will alternate advertisement between Eddystone URL and regular connectable advertisement. The Eddystone URL will point the phone or PC to download [WebBluetooth REPL](https://aykevl.nl/apps/nus/) (experimental), which subsequently can be used to connect to the Bluetooth REPL from the PC or Phone browser.
-
 
 ## Pin numbering scheme for nrf52840-based boards
 

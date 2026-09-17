@@ -41,6 +41,10 @@
 #define MICROPY_PY_MACHINE_TEMP     (1)
 #define MICROPY_HW_HAS_FLASH        (1)
 
+#define MICROPY_VFS                 (1)
+#define MICROPY_VFS_LFS1            (1)
+
+
 #define MICROPY_HW_ENABLE_RNG       (1)
 
 #define MICROPY_HW_HAS_LED          (1)
