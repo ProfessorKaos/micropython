@@ -2,7 +2,6 @@
 
 #define MICROPY_HW_BOARD_NAME               "ZenSpecs"
 #define MICROPY_HW_MCU_NAME                 "c3"
-#define MICROPY_PY_NETWORK_HOSTNAME_DEFAULT "serenspecs"
 
 #define MICROPY_HW_ENABLE_SDCARD            (1)
 #define MICROPY_PY_MACHINE_I2S              (1)

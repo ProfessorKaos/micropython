@@ -5,6 +5,7 @@ set(SDKCONFIG_DEFAULTS
     boards/sdkconfig.base
     boards/sdkconfig.c6
     boards/sdkconfig.ble
+    ${MICROPY_BOARD_DIR}/sdkconfig.ota
 )
 
 # Override WLAN implementation

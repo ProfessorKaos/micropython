@@ -1,7 +1,4 @@
 freeze("$(PORT_DIR)/modules")
-# WORKSPACE_PATH is supplied at build time via MICROPY_MANIFEST_WORKSPACE_PATH
-# (see build_s3.sh). It points to the git worktree of Zen-Specs/Code_device for
-# the branch being built, so it differs per branch/worktree.
 package("app", base_path="$(WORKSPACE_PATH)", files=[
     # "aioble_ota.py",
     # "ble.py",
@@ -20,8 +17,6 @@ package("app", base_path="$(WORKSPACE_PATH)", files=[
     ])
 package("microdot", base_path="$(WORKSPACE_PATH)")
 package("ota", base_path="$(WORKSPACE_PATH)")
-# Only the gzipped variants (tools/convert_statics.py) are flashed; raw
-# html/css/js stay on the host as source of truth.
 package("static", base_path="$(WORKSPACE_PATH)", files=["index.py", "main.py", "style.py"])
 freeze("$(WORKSPACE_PATH)", script="main.py")
 
