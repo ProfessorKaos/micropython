@@ -3,5 +3,9 @@ nvs,data,nvs,0x9000,0x5000,
 otadata,data,ota,0xE000,0x2000,
 app0,app,ota_0,0x10000,0x1F4000,
 app1,app,ota_1,0x210000,0x1F4000,
+<<<<<<< HEAD
 fat,data,fat,0x404000,0xBEC000,
+=======
+vfs,data,fat,0x404000,0xBEC000,
+>>>>>>> master
 coredump,data,coredump,0xFF0000,0x10000,

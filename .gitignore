@@ -37,3 +37,7 @@ user.props
 *SEREN*/
 *seren*/
 *zen*/
+*seren*/
+*zen_mods*/
+.mpy-workbench/.mpyignore
+ports/esp32/boards/MELD/mpconfigboard.cmake

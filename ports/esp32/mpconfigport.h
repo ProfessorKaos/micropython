@@ -156,6 +156,7 @@
 #define MICROPY_PY_MACHINE_I2S              (SOC_I2S_SUPPORTED)
 #endif
 #define MICROPY_PY_MACHINE_I2S_INCLUDEFILE  "ports/esp32/machine_i2s.c"
+#define MICROPY_PY_MACHINE_I2S_MCK          (1)
 #define MICROPY_PY_MACHINE_I2S_FINALISER    (1)
 #define MICROPY_PY_MACHINE_I2S_CONSTANT_RX  (I2S_DIR_RX)
 #define MICROPY_PY_MACHINE_I2S_CONSTANT_TX  (I2S_DIR_TX)
@@ -355,7 +356,9 @@ typedef long mp_off_t;
 #include <sys/types.h>
 
 // board specifics
+#ifndef MICROPY_PY_SYS_PLATFORM
 #define MICROPY_PY_SYS_PLATFORM "esp32"
+#endif
 
 // ESP32-S3 extended IO for 47 & 48
 #ifndef MICROPY_HW_ESP32S3_EXTENDED_IO
