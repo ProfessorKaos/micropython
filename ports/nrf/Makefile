@@ -232,6 +232,7 @@ SRC_NRFX += $(addprefix lib/nrfx/drivers/src/,\
 	nrfx_nvmc.c \
 	nrfx_power.c \
 	nrfx_clock.c \
+	nrfx_pdm.c \
 	)
 
 SRC_NRFX += \

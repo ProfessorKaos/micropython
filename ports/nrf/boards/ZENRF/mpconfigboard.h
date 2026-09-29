@@ -42,7 +42,11 @@
 #define MICROPY_HW_HAS_FLASH        (1)
 
 #define MICROPY_VFS                 (1)
+// MICROPY_VFS_LFS1 also comes from mpconfigboard.mk (-D via extmod.mk) so the
+// littlefs1 sources get compiled; guard against the command-line definition.
+#ifndef MICROPY_VFS_LFS1
 #define MICROPY_VFS_LFS1            (1)
+#endif
 
 
 #define MICROPY_HW_ENABLE_RNG       (1)

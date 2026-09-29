@@ -60,6 +60,16 @@
 #define NRF_GPIOTE0 NRF_GPIOTE
 #endif
 
+// PDM microphone (usermod nrf_pdm): same single-instance naming as GPIOTE.
+// nRF52840 only - nRF51/nRF52832 have no PDM on these boards.
+#if defined(NRF52840) && !defined(NRF51) && !defined(NRF52832)
+#define NRF_PDM0 NRF_PDM
+#define NRFX_PDM_ENABLED 1
+#define NRFX_PDM_DEFAULT_CONFIG_IRQ_PRIORITY 6
+#else
+#define NRFX_PDM_ENABLED 0
+#endif
+
 #if defined(NRF52840)
 // for tinyusb
 // #define NRFX_IRQ_IS_ENABLED 1
