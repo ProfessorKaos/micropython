@@ -7,7 +7,7 @@ import time
 
 import adcdma
 
-PIN = 1
+PIN = 9
 FREQ = 20000
 CALLS = 100
 
