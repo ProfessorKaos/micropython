@@ -1,0 +1,6 @@
+# Select a 4MiB-flash module: override the flash size and partition table
+# chosen by the board/OTA fragments (appended after them so it wins).
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=
+
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-4MiB-ota.csv"

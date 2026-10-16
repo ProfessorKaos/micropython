@@ -21,7 +21,10 @@
     "url": "https://www.espressif.com/en/products/modules",
     "vendor": "Espressif",
     "variants": {
-        "SPIRAM_OCT": "Support for Octal-SPIRAM",
-        "FLASH_4M": "4MiB flash"
+        "WIFI": "WiFi + config server, no BLE",
+        "BLE": "BLE + OTA-over-BLE, no config server",
+        "WIFI_BLE": "WiFi + BLE + config server",
+        "FLASH_4M": "4MiB flash (BLE-only profile)",
+        "SPIRAM_OCT": "Support for Octal-SPIRAM"
     }
 }

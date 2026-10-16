@@ -1,3 +1,6 @@
+# Octal-SPIRAM modules (8MiB flash): full feature set.
+seren_profile(WIFI_BLE)
+
 set(SDKCONFIG_DEFAULTS
     ${SDKCONFIG_DEFAULTS}
     boards/sdkconfig.240mhz

@@ -1,10 +1,5 @@
-set(SDKCONFIG_DEFAULTS
-    ${SDKCONFIG_DEFAULTS}
-    boards/ESP32_GENERIC_S3/sdkconfig.flash_4m
-)
-
-set(MICROPY_FROZEN_MANIFEST ${MICROPY_BOARD_DIR}/manifest_4M.py)
-
-list(APPEND MICROPY_DEF_BOARD
-    MICROPY_HW_BOARD_NAME="4MB Flash"
-)
+# 4MiB-flash modules: BLE-only profile. Legacy name kept for existing build
+# scripts (equivalent to a BLE_4M build); the partition table and flash size
+# come from seren_flash_4m().
+seren_profile(BLE)
+seren_flash_4m()

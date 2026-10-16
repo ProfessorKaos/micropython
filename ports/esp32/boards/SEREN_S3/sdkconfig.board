@@ -1,8 +1,9 @@
+# Flash mode/size for SEREN_S3 modules. The partition table comes from the
+# shared OTA/flash-size fragments (boards/SEREN/sdkconfig.ota_8m and
+# boards/SEREN/sdkconfig.flash_4m).
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=
-CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-8MiB-ota.csv"
