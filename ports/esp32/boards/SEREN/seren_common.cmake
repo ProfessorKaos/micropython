@@ -1,14 +1,13 @@
 # Shared SEREN board configuration: single source of truth for all SEREN boards.
 #
 # Layering:
-#   BOARD         -> chip (SEREN_C3 / SEREN_C6 / SEREN_S3)
-#   BOARD_VARIANT -> feature profile (WIFI / BLE / WIFI_BLE), optionally with a
-#                    4MiB-flash suffix (_4M) or legacy aliases (OTA, FLASH_4M,
-#                    SPIRAM_OCT).
+#   BOARD         -> hardware: chip + flash layout
+#                    (SEREN_C3 / SEREN_C6 / SEREN_S3 / SEREN_S3_4M)
+#   BOARD_VARIANT -> feature profile (WIFI / BLE / WIFI_BLE) or a legacy alias
+#                    (OTA, SPIRAM_OCT).
 #
 # Profiles select frozen content via boards/SEREN/profiles/<name>.py and are
-# declared with seren_profile().  4MiB-flash modules append sdkconfig.flash_4m
-# via seren_flash_4m().
+# declared with seren_profile().
 
 get_filename_component(SEREN_COMMON_DIR ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 
@@ -30,19 +29,23 @@ set(MICROPY_FROZEN_MANIFEST ${MICROPY_BOARD_DIR}/manifest.py)
 # Bake the build variant into the firmware: manifest_common.py freezes this as
 # the build_variant module, and the app uses VARIANT to fetch its own OTA
 # manifest ({model}_{branch}[_{variant}].json). Empty for the default profile.
-file(WRITE ${CMAKE_BINARY_DIR}/build_variant.py "VARIANT = \"${MICROPY_BOARD_VARIANT}\"\n")
+# Boards whose modules have a different flash layout set SEREN_FLASH_TAG
+# (e.g. "4M") BEFORE including this file; the tag is appended to the baked
+# variant so 4M and 8M images publish/fetch distinct manifests (e.g. a
+# SEREN_S3_4M BLE build fetches s3_dev_ble_4m.json, the 8M board s3_dev_ble.json).
+# build.sh derives the same suffix from the *_4M board name - keep in sync.
+set(_seren_variant "${MICROPY_BOARD_VARIANT}")
+if(SEREN_FLASH_TAG)
+    if(_seren_variant)
+        string(APPEND _seren_variant "_")
+    endif()
+    string(APPEND _seren_variant "${SEREN_FLASH_TAG}")
+endif()
+file(WRITE ${CMAKE_BINARY_DIR}/build_variant.py "VARIANT = \"${_seren_variant}\"\n")
 set(MICROPY_MANIFEST_BUILD_DIR ${CMAKE_BINARY_DIR})
 
 # seren_profile(<name>): select the feature profile for this build. <name>
 # must match a file in boards/SEREN/profiles/.
 macro(seren_profile name)
     set(MICROPY_MANIFEST_SEREN_PROFILE ${name})
-endmacro()
-
-# seren_flash_4m(): target a 4MiB-flash module. Overrides the flash size and
-# partition table selected by the board/OTA fragments (must be called after
-# SDKCONFIG_DEFAULTS is populated).
-macro(seren_flash_4m)
-    list(APPEND SDKCONFIG_DEFAULTS ${SEREN_COMMON_DIR}/sdkconfig.flash_4m)
-    list(APPEND MICROPY_DEF_BOARD MICROPY_HW_BOARD_NAME="4MB Flash")
 endmacro()

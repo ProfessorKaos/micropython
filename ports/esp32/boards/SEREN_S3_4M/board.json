@@ -1,0 +1,26 @@
+{
+    "deploy": [
+        "../deploy.md"
+    ],
+    "deploy_options": {
+        "flash_offset": "0"
+    },
+    "docs": "",
+    "features": [
+        "BLE",
+        "WiFi"
+    ],
+    "images": [
+        "generic_s3.jpg"
+    ],
+    "mcu": "esp32s3",
+    "product": "ESP32-S3 (4MiB flash)",
+    "thumbnail": "",
+    "url": "https://www.espressif.com/en/products/modules",
+    "vendor": "Espressif",
+    "variants": {
+        "BLE": "BLE + OTA-over-BLE, no config server",
+        "WIFI": "WiFi + config server (build fails if the image exceeds the 4M OTA partition)",
+        "WIFI_BLE": "WiFi + BLE + config server (build fails if the image exceeds the 4M OTA partition)"
+    }
+}
